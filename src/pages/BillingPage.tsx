@@ -118,37 +118,6 @@ const BillingPage: React.FC = () => {
     }
   };
 
-  const handleMarkAsPaid = async (inv: Invoice) => {
-    const total = Number(inv.total);
-    const collected = (inv.t_comprobante_cobros || []).reduce((sum, c) => sum + Number(c.importe), 0);
-    const remaining = total - collected;
-
-    if (remaining <= 0) {
-      toast.error('Este comprobante ya está totalmente cobrado');
-      return;
-    }
-
-    if (!window.confirm(`¿Registrar cobro total de $${remaining.toLocaleString('es-AR')} para el comprobante ${inv.numero}?`)) return;
-
-    try {
-      const { error } = await supabase
-        .from('t_comprobante_cobros')
-        .insert([{
-          comprobante_id: inv.id,
-          tipo: 'Efectivo',
-          importe: remaining,
-          fecha: new Date().toISOString().split('T')[0],
-          observaciones: 'Cobro rápido desde panel administrative'
-        }]);
-
-      if (error) throw error;
-      toast.success('Cobro registrado y estado actualizado');
-      fetchInvoices();
-    } catch (err: any) {
-      toast.error('Error al registrar cobro: ' + err.message);
-    }
-  };
-
   const filteredInvoices = invoices.filter(inv => 
     inv.t_clientes?.razon_social.toLowerCase().includes(searchTerm.toLowerCase()) ||
     inv.numero.toLowerCase().includes(searchTerm.toLowerCase())
