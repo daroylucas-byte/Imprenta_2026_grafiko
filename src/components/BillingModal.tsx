@@ -26,6 +26,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
       subtotal: initialSubtotal,
       iva: initialIva,
       total: baseTotal,
+      estado: job?.estado || 'pendiente',
       observaciones: job ? `Facturación de trabajo: ${job.descripcion}` : '',
     }
   });
@@ -97,6 +98,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
               subtotal: Number(data.subtotal),
               iva: Number(data.iva),
               total: Number(data.total),
+              estado: data.estado || 'pendiente',
               observaciones: data.observaciones,
             });
           }
@@ -227,6 +229,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
             subtotal: data.subtotal,
             iva: data.iva,
             total: data.total,
+            estado: data.estado,
             observaciones: data.observaciones,
           })
           .eq('id', existingInvoiceId);
@@ -248,6 +251,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
             subtotal: data.subtotal,
             iva: data.iva,
             total: data.total,
+            estado: data.estado,
             observaciones: data.observaciones,
           }])
           .select()
@@ -350,6 +354,18 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
                   className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
                 />
                 {errors.numero && <p className="text-[10px] text-error font-bold mt-1">Requerido</p>}
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Estado de Pago</label>
+                <select 
+                  {...register('estado')}
+                  className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
+                >
+                  <option value="pendiente">Pendiente</option>
+                  <option value="parcial">Parcial</option>
+                  <option value="cobrado">Cobrado</option>
+                  <option value="anulado">Anulado</option>
+                </select>
               </div>
             </div>
 

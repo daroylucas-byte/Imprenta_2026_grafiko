@@ -16,6 +16,7 @@ interface Invoice {
   t_comprobante_cobros?: {
     importe: number;
   }[];
+  estado?: string;
 }
 
 const BillingPage: React.FC = () => {
@@ -82,6 +83,16 @@ const BillingPage: React.FC = () => {
   }, [fetchInvoices]);
 
   const getStatus = (inv: Invoice) => {
+    // If there's an explicit status in the DB, use it
+    if (inv.estado && inv.estado !== 'pendiente') {
+      const isPaid = inv.estado.toLowerCase() === 'cobrado';
+      return { 
+        label: inv.estado.charAt(0).toUpperCase() + inv.estado.slice(1), 
+        color: isPaid ? 'bg-emerald-500/10 text-emerald-700' : 'bg-blue-500/10 text-blue-700', 
+        isPaid 
+      };
+    }
+
     const total = Number(inv.total);
     const collected = (inv.t_comprobante_cobros || []).reduce((sum, c) => sum + Number(c.importe), 0);
     
@@ -236,22 +247,13 @@ const BillingPage: React.FC = () => {
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-center gap-2">
-                        {!status.isPaid && (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleMarkAsPaid(inv); }}
-                            title="Marcar como Pagado"
-                            className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors border border-transparent hover:border-emerald-100 shadow-sm hover:shadow-md bg-white"
-                          >
-                            <span className="material-symbols-outlined text-lg">payments</span>
-                          </button>
-                        )}
                         <button 
                           onClick={(e) => { 
                             e.stopPropagation(); 
                             setSelectedInvoiceId(inv.id);
                             setIsEditModalOpen(true);
                           }}
-                          title="Editar"
+                          title="Editar / Cambiar Estado"
                           className="p-2 hover:bg-primary/5 text-primary rounded-lg transition-colors border border-transparent hover:border-primary/10 bg-white"
                         >
                           <span className="material-symbols-outlined text-lg">edit</span>
