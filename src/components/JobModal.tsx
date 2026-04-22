@@ -116,7 +116,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const handleClientChange = (clientId: string) => {
     const client = clientes.find(c => c.id === clientId);
     if (client) {
-      setCurrentItem(prev => ({
+      setCurrentItem((prev: any) => ({
         ...prev,
         tipo_precio: client.es_mayorista ? 'mayorista' : 'minorista'
       }));
@@ -128,7 +128,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     const product = productos.find(p => p.id === productId);
     if (product) {
       const price = currentItem.tipo_precio === 'mayorista' ? product.precio_mayorista : product.precio_minorista;
-      setCurrentItem(prev => ({
+      setCurrentItem((prev: any) => ({
         ...prev,
         producto_id: productId,
         precio_unitario: price,
@@ -139,7 +139,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
   // Update item quantity or manually override price
   const updateCurrentItem = (updates: any) => {
-    setCurrentItem(prev => {
+    setCurrentItem((prev: any) => {
       const next = { ...prev, ...updates };
       // Re-calc subtotal if quantity or unit price changed
       if (updates.cantidad !== undefined || updates.precio_unitario !== undefined || updates.tipo_precio !== undefined) {

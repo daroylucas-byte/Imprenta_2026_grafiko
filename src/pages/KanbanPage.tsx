@@ -330,20 +330,20 @@ const KanbanPage: React.FC = () => {
                              </div>
                            )}
                            {/* Production Counter: Active during "EN PRODUCCIÓN" and frozen at "LISTO PARA ENTREGAR" */}
-                           {(job.estado === 'EN PRODUCCIÓN' || job.estado === 'LISTO PARA ENTREGAR') && (
-                             <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${job.estado === 'LISTO PARA ENTREGAR' ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-indigo-500/10 text-indigo-700 border-indigo-500/20'}`}>
-                                <span className="material-symbols-outlined text-[14px]">{job.estado === 'LISTO PARA ENTREGAR' ? 'verified' : 'timer'}</span>
+                           {(col.status === 'EN PRODUCCIÓN' || col.status === 'LISTO PARA ENTREGAR') && (
+                             <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border ${col.status === 'LISTO PARA ENTREGAR' ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-indigo-500/10 text-indigo-700 border-indigo-500/20'}`}>
+                                <span className="material-symbols-outlined text-[14px]">{col.status === 'LISTO PARA ENTREGAR' ? 'verified' : 'timer'}</span>
                                 <span className="text-[9px] font-black uppercase tracking-tighter">
                                   {job.fecha_pase_produccion ? (
                                      (() => {
                                        const start = new Date(job.fecha_pase_produccion).getTime();
                                        // If ready, use finish date, otherwise use current date
-                                       const end = (job.estado === 'LISTO PARA ENTREGAR' && job.fecha_prod_fin) 
+                                       const end = (col.status === 'LISTO PARA ENTREGAR' && job.fecha_prod_fin) 
                                          ? new Date(job.fecha_prod_fin).getTime() 
                                          : new Date().getTime();
                                        
                                        const days = Math.floor((end - start) / (1000 * 60 * 60 * 24));
-                                       return job.estado === 'LISTO PARA ENTREGAR' ? `Tardó ${days} días` : `${days} DÍAS EN PROD.`;
+                                       return col.status === 'LISTO PARA ENTREGAR' ? `Tardó ${days} días` : `${days} DÍAS EN PROD.`;
                                      })()
                                   ) : 'INICIANDO PROD.'}
                                 </span>

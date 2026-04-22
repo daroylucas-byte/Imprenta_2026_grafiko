@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -20,7 +20,6 @@ const SITUACIONES_IVA = [
 const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess }) => {
   const { register, handleSubmit, watch, reset, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(false);
 
   const esMayorista = watch('es_mayorista');
 
@@ -28,7 +27,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess 
   useEffect(() => {
     if (clientId) {
       const fetchClient = async () => {
-        setFetching(true);
+        setLoading(true);
         try {
           const { data, error } = await supabase
             .from('t_clientes')
@@ -43,7 +42,7 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess 
         } catch (err: any) {
           toast.error('Error al cargar datos del cliente: ' + err.message);
         } finally {
-          setFetching(false);
+          setLoading(false);
         }
       };
       fetchClient();

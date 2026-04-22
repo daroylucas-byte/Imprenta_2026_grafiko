@@ -61,7 +61,7 @@ const BillingPage: React.FC = () => {
           monthSum += Number(inv.total);
         }
 
-        const collected = (inv.t_comprobante_cobros || []).reduce((sum, c) => sum + Number(c.importe), 0);
+        const collected = (inv.t_comprobante_cobros || []).reduce((sum: number, c: any) => sum + Number(c.importe), 0);
         pendingSum += Math.max(0, Number(inv.total) - collected);
       });
 

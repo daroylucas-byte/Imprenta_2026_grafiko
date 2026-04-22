@@ -27,11 +27,6 @@ interface RecentJob {
   paymentColor: string;
 }
 
-interface OverdueJob {
-  client: string;
-  title: string;
-  date: string;
-}
 
 interface MonthlyData {
   month: string;
@@ -51,7 +46,6 @@ const DashboardPage: React.FC = () => {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
 
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
-  const [overdueJobs, setOverdueJobs] = useState<OverdueJob[]>([]);
   const [topProducts, setTopProducts] = useState<{name: string, qty: number}[]>([]);
   const [debtors, setDebtors] = useState<{name: string, balance: number}[]>([]);
   const [loading, setLoading] = useState(true);
