@@ -436,7 +436,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
           ) : (
             /* Pending Jobs List */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pendingJobs.map((job, idx) => (
+              {pendingJobs.map((job) => (
                 <div key={job.id} className="bg-white p-6 rounded-3xl border border-outline-variant/10 shadow-sm hover:border-primary/20 transition-all group">
                    <div className="flex justify-between items-start mb-4">
                       <div>

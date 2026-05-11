@@ -15,6 +15,8 @@ interface Client {
   es_mayorista: boolean;
   created_at: string;
   saldo?: number;
+  saldo_total?: number;
+  saldo_disponible_cc?: number;
 }
 
 const ClientsPage: React.FC = () => {
@@ -162,9 +164,9 @@ const ClientsPage: React.FC = () => {
                        <p className={`text-sm font-black ${Number(client.saldo_total || 0) > 0 ? 'text-error' : Number(client.saldo_total || 0) < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
                          $ {Number(client.saldo_total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                        </p>
-                       {Number((client as any).saldo_disponible_cc || 0) > 0 && (
+                       {Number(client.saldo_disponible_cc || 0) > 0 && (
                          <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">
-                           Crédito CC: $ {Number((client as any).saldo_disponible_cc).toLocaleString('es-AR')}
+                           Crédito CC: $ {Number(client.saldo_disponible_cc).toLocaleString('es-AR')}
                          </p>
                        )}
                     </td>
