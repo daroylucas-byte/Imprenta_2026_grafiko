@@ -14,7 +14,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
-  
+
   // Lookup states
   const [clientes, setClientes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
@@ -33,7 +33,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
   const [clientCredit, setClientCredit] = useState(0);
   const [applyingCredit, setApplyingCredit] = useState(false);
-  
+
   const [currentItem, setCurrentItem] = useState<any>({
     producto_id: '',
     cantidad: 1,
@@ -48,7 +48,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const fetchLookups = useCallback(async () => {
     try {
       const [
-        { data: c }, { data: pList }, { data: s }, { data: si }, { data: t }, 
+        { data: c }, { data: pList }, { data: s }, { data: si }, { data: t },
         { data: p }, { data: a }, { data: tm }, { data: e }
       ] = await Promise.all([
         supabase.from('t_clientes').select('id, razon_social, nombre, es_mayorista').order('razon_social'),
@@ -126,13 +126,13 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         .eq('trabajo_id', jobId)
         .order('fecha', { ascending: false });
       setPagos(pData || []);
-      
+
       // Fetch job items
       const { data: iData } = await supabase
         .from('t_trabajo_productos')
         .select('*, t_productos(nombre)')
         .eq('trabajo_id', jobId);
-      
+
       if (iData) {
         setItems(iData.map(item => ({
           ...item,
@@ -221,7 +221,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     }
     const product = productos.find(p => p.id === currentItem.producto_id);
     setItems(prev => [...prev, { ...currentItem, nombre: product.nombre, product }]);
-    
+
     // Auto-update form total
     const newTotal = items.reduce((sum, item) => sum + item.subtotal, 0) + currentItem.subtotal;
     setValue('total', newTotal);
@@ -264,7 +264,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       if (jobId) {
         const { data: currentJob } = await supabase.from('t_trabajos').select('estado').eq('id', jobId).single();
         if (currentJob?.estado === 'PRESUPUESTADO' && data.estado === 'APROBADO') {
-           sanitizedData.fecha_aprobacion = new Date().toISOString().split('T')[0];
+          sanitizedData.fecha_aprobacion = new Date().toISOString().split('T')[0];
         }
       }
 
@@ -275,7 +275,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
         // Update Items: Delete old ones and insert current ones
         await supabase.from('t_trabajo_productos').delete().eq('trabajo_id', jobId);
-        
+
         if (items.length > 0) {
           const itemRows = items.map(item => ({
             trabajo_id: jobId,
@@ -350,7 +350,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
   const applyClientCredit = async () => {
     if (!jobId || clientCredit <= 0) return;
-    
+
     setApplyingCredit(true);
     try {
       // 1. Fetch receipts and their applications separately
@@ -430,7 +430,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         ...paymentData,
         fecha: paymentData.fecha || new Date().toISOString().split('T')[0]
       }]);
-      
+
       if (error) throw error;
       toast.success('Pago registrado');
       setIsRegisteringPayment(false);
@@ -457,7 +457,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           </div>
           <div className="flex items-center gap-2">
             {jobId && (
-              <button 
+              <button
                 type="button"
                 onClick={() => printJobVoucher(jobId)}
                 className="p-2 hover:bg-indigo-50 text-indigo-600 rounded-full transition-colors transition-transform active:scale-90"
@@ -474,13 +474,13 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
         {fetching ? (
           <div className="flex-1 flex flex-col items-center justify-center p-20 space-y-4">
-             <div className="w-12 h-12 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
-             <p className="text-xs font-black uppercase text-outline/50 tracking-widest">Cargando especificaciones...</p>
+            <div className="w-12 h-12 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
+            <p className="text-xs font-black uppercase text-outline/50 tracking-widest">Cargando especificaciones...</p>
           </div>
         ) : (
           /* Form Body */
           <form onSubmit={handleSubmit(onSubmit)} className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-10 space-y-8 md:space-y-12">
-            
+
             {/* Section: General Information */}
             <div className="space-y-6">
               <div className="flex items-center gap-3 text-primary">
@@ -490,7 +490,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Estado del Trabajo</label>
-                  <select 
+                  <select
                     {...register('estado', { required: true })}
                     className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
                   >
@@ -504,9 +504,9 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 </div>
                 <div className="flex items-center gap-4 px-4">
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="checkbox" 
-                      id="facturado" 
+                    <input
+                      type="checkbox"
+                      id="facturado"
                       {...register('facturado')}
                       className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20"
                     />
@@ -521,7 +521,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     <label className="text-[10px] font-black text-error uppercase tracking-widest ml-1 flex items-center gap-1">
                       <span className="material-symbols-outlined text-xs">event_busy</span> Caducidad Presupuesto
                     </label>
-                    <input 
+                    <input
                       type="date"
                       {...register('fecha_vencimiento_presupuesto')}
                       className="w-full bg-error/5 border border-error/10 rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-error/20"
@@ -530,17 +530,17 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 ) : (
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Fecha de Entrega Prometida</label>
-                    <input 
+                    <input
                       type="date"
                       {...register('fecha_entrega')}
                       className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
                     />
                   </div>
                 )}
-                
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Cliente</label>
-                  <select 
+                  <select
                     {...register('cliente_id', { required: true })}
                     onChange={(e) => {
                       register('cliente_id').onChange(e);
@@ -560,7 +560,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Descripción General del Proyecto</label>
-                  <input 
+                  <input
                     {...register('descripcion', { required: true })}
                     placeholder="Ej: Pedido mensual Editorial..."
                     className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
@@ -579,7 +579,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   <h4 className="text-sm font-black uppercase tracking-[0.2em]">Productos en el Trabajo</h4>
                 </div>
                 <div className="px-4 py-1.5 bg-primary/10 rounded-full">
-                   <p className="text-[10px] font-black text-primary uppercase">{items.length} ITÉM(S)</p>
+                  <p className="text-[10px] font-black text-primary uppercase">{items.length} ITÉM(S)</p>
                 </div>
               </div>
 
@@ -588,7 +588,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                   <div className="md:col-span-5 space-y-1">
                     <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seleccionar Producto</label>
-                    <select 
+                    <select
                       value={currentItem.producto_id}
                       onChange={(e) => handleProductChange(e.target.value)}
                       className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
@@ -599,36 +599,36 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </div>
                   <div className="md:col-span-2 space-y-1">
                     <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Cantidad</label>
-                      <input 
-                        type="number"
-                        value={currentItem.cantidad}
-                        onChange={(e) => updateCurrentItem({ cantidad: e.target.value === '' ? '' : parseInt(e.target.value) })}
-                        placeholder="0"
-                        className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
-                      />
+                    <input
+                      type="number"
+                      value={currentItem.cantidad}
+                      onChange={(e) => updateCurrentItem({ cantidad: e.target.value === '' ? '' : parseInt(e.target.value) })}
+                      placeholder="0"
+                      className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                    />
                   </div>
                   <div className="md:col-span-3 space-y-1">
                     <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Precio Unit.</label>
                     <div className="flex bg-surface-container-low rounded-xl overflow-hidden">
-                       <select 
-                         value={currentItem.tipo_precio}
-                         onChange={(e) => updateCurrentItem({ tipo_precio: e.target.value })}
-                         className="bg-primary/10 border-none py-2.5 px-2 text-[10px] font-black uppercase text-primary focus:ring-0 appearance-none cursor-pointer"
-                       >
-                         <option value="minorista">Min</option>
-                         <option value="mayorista">May</option>
-                       </select>
-                        <input 
-                         type="number"
-                         value={currentItem.precio_unitario}
-                         onChange={(e) => updateCurrentItem({ precio_unitario: e.target.value === '' ? '' : parseFloat(e.target.value) })}
-                         placeholder="0.00"
-                         className="w-full bg-transparent border-none py-2.5 px-3 text-sm font-black focus:ring-0"
-                       />
+                      <select
+                        value={currentItem.tipo_precio}
+                        onChange={(e) => updateCurrentItem({ tipo_precio: e.target.value })}
+                        className="bg-primary/10 border-none py-2.5 px-2 text-[10px] font-black uppercase text-primary focus:ring-0 appearance-none cursor-pointer"
+                      >
+                        <option value="minorista">Min</option>
+                        <option value="mayorista">May</option>
+                      </select>
+                      <input
+                        type="number"
+                        value={currentItem.precio_unitario}
+                        onChange={(e) => updateCurrentItem({ precio_unitario: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                        placeholder="0.00"
+                        className="w-full bg-transparent border-none py-2.5 px-3 text-sm font-black focus:ring-0"
+                      />
                     </div>
                   </div>
                   <div className="md:col-span-2">
-                    <button 
+                    <button
                       type="button"
                       onClick={addItem}
                       className="w-full bg-slate-900 text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-primary transition-all active:scale-95"
@@ -647,7 +647,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                           <label className="text-[9px] font-black text-amber-600 uppercase tracking-widest ml-1 flex items-center gap-1">
                             <span className="material-symbols-outlined text-xs">123</span> Desde
                           </label>
-                          <input 
+                          <input
                             value={currentItem.numeracion_desde}
                             onChange={(e) => updateCurrentItem({ numeracion_desde: e.target.value })}
                             placeholder="0001"
@@ -658,7 +658,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                           <label className="text-[9px] font-black text-amber-600 uppercase tracking-widest ml-1 flex items-center gap-1">
                             <span className="material-symbols-outlined text-xs">123</span> Hasta
                           </label>
-                          <input 
+                          <input
                             value={currentItem.numeracion_hasta}
                             onChange={(e) => updateCurrentItem({ numeracion_hasta: e.target.value })}
                             placeholder="0500"
@@ -672,7 +672,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                         <label className="text-[9px] font-black text-blue-600 uppercase tracking-widest ml-1 flex items-center gap-1">
                           <span className="material-symbols-outlined text-xs">calendar_today</span> Fecha Muestra
                         </label>
-                        <input 
+                        <input
                           type="date"
                           value={currentItem.fecha_muestra}
                           onChange={(e) => updateCurrentItem({ fecha_muestra: e.target.value })}
@@ -710,22 +710,22 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                           <td className="px-4 py-4 text-right font-black">$ {(Number(item.subtotal) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4">
                             <div className="flex flex-col gap-1 items-center justify-center">
-                               {item.numeracion_desde && (
-                                 <span className="flex items-center gap-1 text-[8px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
-                                   <span className="material-symbols-outlined text-[10px]">123</span> {item.numeracion_desde}-{item.numeracion_hasta}
-                                 </span>
-                               )}
-                               {item.fecha_muestra && (
-                                 <span className="flex items-center gap-1 text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                                   <span className="material-symbols-outlined text-[10px]">calendar_today</span> {new Date(item.fecha_muestra).toLocaleDateString('es-AR')}
-                                 </span>
-                               )}
-                               {!item.numeracion_desde && !item.fecha_muestra && <span className="text-outline/20">---</span>}
+                              {item.numeracion_desde && (
+                                <span className="flex items-center gap-1 text-[8px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                                  <span className="material-symbols-outlined text-[10px]">123</span> {item.numeracion_desde}-{item.numeracion_hasta}
+                                </span>
+                              )}
+                              {item.fecha_muestra && (
+                                <span className="flex items-center gap-1 text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                                  <span className="material-symbols-outlined text-[10px]">calendar_today</span> {new Date(item.fecha_muestra).toLocaleDateString('es-AR')}
+                                </span>
+                              )}
+                              {!item.numeracion_desde && !item.fecha_muestra && <span className="text-outline/20">---</span>}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               onClick={() => removeItem(idx)}
                               className="text-error hover:scale-125 transition-transform"
                             >
@@ -811,20 +811,20 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     <h4 className="text-sm font-black uppercase tracking-[0.2em]">Estado Financiero del Trabajo</h4>
                   </div>
                   <div className="flex gap-2">
-                     <button 
-                       type="button"
-                       onClick={() => jobId && printJobVoucher(jobId)}
-                       className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all active:scale-95 border border-indigo-100"
-                     >
-                       <span className="material-symbols-outlined text-sm">print</span>
-                       Imprimir
-                     </button>
-                     {saldoData?.saldo_pendiente > 0 && (
-                       <span className="px-3 py-1 bg-error/10 text-error rounded-full text-[10px] font-black uppercase tracking-tighter">Deuda Pendiente</span>
-                     )}
-                     {saldoData?.saldo_pendiente <= 0 && saldoData?.total > 0 && (
-                       <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter">Saldado</span>
-                     )}
+                    <button
+                      type="button"
+                      onClick={() => jobId && printJobVoucher(jobId)}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all active:scale-95 border border-indigo-100"
+                    >
+                      <span className="material-symbols-outlined text-sm">print</span>
+                      Imprimir
+                    </button>
+                    {saldoData?.saldo_pendiente > 0 && (
+                      <span className="px-3 py-1 bg-error/10 text-error rounded-full text-[10px] font-black uppercase tracking-tighter">Deuda Pendiente</span>
+                    )}
+                    {saldoData?.saldo_pendiente <= 0 && saldoData?.total > 0 && (
+                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter">Saldado</span>
+                    )}
                   </div>
                 </div>
 
@@ -864,7 +864,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h5 className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Historial de Pagos Directos / Señas</h5>
-                    <button 
+                    <button
                       type="button"
                       onClick={() => setIsRegisteringPayment(!isRegisteringPayment)}
                       className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-900 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-primary transition-all active:scale-95"
@@ -876,56 +876,56 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
                   {isRegisteringPayment && (
                     <div className="bg-surface-container-lowest p-6 rounded-[2rem] border border-primary/20 shadow-lg shadow-primary/5 animate-in slide-in-from-top-4 duration-300">
-                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Importe ($)</label>
-                            <input 
-                              id="payment_amount" type="number" step="0.01" 
-                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-black text-primary focus:ring-2 focus:ring-primary/20"
-                              placeholder="0.00"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Tipo</label>
-                            <select id="payment_type" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
-                              <option value="seña">SEÑA (Anticipo)</option>
-                              <option value="pago">PAGO PARCIAL</option>
-                              <option value="pago">PAGO TOTAL</option>
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio</label>
-                            <select id="payment_method" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
-                              <option value="EFECTIVO">EFECTIVO</option>
-                              <option value="TRANSFERENCIA">TRANSFERENCIA</option>
-                              <option value="CHEQUE">CHEQUE</option>
-                              <option value="MERCADO PAGO">MERCADO PAGO</option>
-                              <option value="OTRO">OTRO</option>
-                            </select>
-                          </div>
-                          <div className="md:col-span-2 space-y-1">
-                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Observaciones</label>
-                            <input 
-                              id="payment_obs"
-                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold"
-                              placeholder="Nota interna..."
-                            />
-                          </div>
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              const amount = (document.getElementById('payment_amount') as HTMLInputElement).value;
-                              const type = (document.getElementById('payment_type') as HTMLSelectElement).value;
-                              const method = (document.getElementById('payment_method') as HTMLSelectElement).value;
-                              const obs = (document.getElementById('payment_obs') as HTMLInputElement).value;
-                              if (!amount || Number(amount) <= 0) return toast.error('Monto inválido');
-                              registerDirectPayment({ importe: Number(amount), tipo: type, tipo_pago: method, observaciones: obs });
-                            }}
-                            className="w-full bg-emerald-600 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-md shadow-emerald-500/20"
-                          >
-                            Confirmar Pago
-                          </button>
-                       </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Importe ($)</label>
+                          <input
+                            id="payment_amount" type="number" step="0.01"
+                            className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-black text-primary focus:ring-2 focus:ring-primary/20"
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Tipo</label>
+                          <select id="payment_type" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
+                            <option value="seña">SEÑA (Anticipo)</option>
+                            <option value="pago">PAGO PARCIAL</option>
+                            <option value="pago">PAGO TOTAL</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio</label>
+                          <select id="payment_method" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
+                            <option value="EFECTIVO">EFECTIVO</option>
+                            <option value="TRANSFERENCIA">TRANSFERENCIA</option>
+                            <option value="CHEQUE">CHEQUE</option>
+                            <option value="MERCADO PAGO">MERCADO PAGO</option>
+                            <option value="OTRO">OTRO</option>
+                          </select>
+                        </div>
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Observaciones</label>
+                          <input
+                            id="payment_obs"
+                            className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold"
+                            placeholder="Nota interna..."
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const amount = (document.getElementById('payment_amount') as HTMLInputElement).value;
+                            const type = (document.getElementById('payment_type') as HTMLSelectElement).value;
+                            const method = (document.getElementById('payment_method') as HTMLSelectElement).value;
+                            const obs = (document.getElementById('payment_obs') as HTMLInputElement).value;
+                            if (!amount || Number(amount) <= 0) return toast.error('Monto inválido');
+                            registerDirectPayment({ importe: Number(amount), tipo: type, tipo_pago: method, observaciones: obs });
+                          }}
+                          className="w-full bg-emerald-600 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-md shadow-emerald-500/20"
+                        >
+                          Confirmar Pago
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -944,9 +944,9 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                           <tr key={idx} className="text-[11px] font-bold text-on-surface">
                             <td className="px-6 py-4">{new Date(p.fecha).toLocaleDateString('es-AR')}</td>
                             <td className="px-4 py-4">
-                               <span className={`px-2 py-0.5 rounded-md uppercase tracking-tighter text-[9px] ${p.tipo === 'seña' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                 {p.tipo}
-                               </span>
+                              <span className={`px-2 py-0.5 rounded-md uppercase tracking-tighter text-[9px] ${p.tipo === 'seña' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {p.tipo}
+                              </span>
                             </td>
                             <td className="px-4 py-4 uppercase text-outline text-[9px]">{p.tipo_pago}</td>
                             <td className="px-6 py-4 text-right font-black text-on-surface">$ {(Number(p.importe) || 0).toLocaleString('es-AR')}</td>
@@ -978,7 +978,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seña Inicial Sugerida (AR$)</label>
-                    <input 
+                    <input
                       type="number"
                       step="0.01"
                       {...register('sena', { valueAsNumber: true })}
@@ -994,14 +994,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
         {/* Footer Actions */}
         <div className="px-10 py-8 bg-surface-container-low/50 border-t border-outline-variant/10 flex gap-4">
-          <button 
+          <button
             type="button"
             onClick={onClose}
             className="flex-1 py-4 bg-white text-on-surface-variant font-bold rounded-2xl hover:bg-slate-100 transition-all border border-outline-variant/20 active:scale-95"
           >
             Cancelar
           </button>
-          <button 
+          <button
             disabled={loading}
             onClick={handleSubmit(onSubmit)}
             className="flex-[2] py-4 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"

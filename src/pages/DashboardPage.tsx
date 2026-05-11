@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Chart from 'chart.js/auto';
@@ -21,12 +21,8 @@ interface RecentJob {
   statusIcon: string;
   date: string;
   total: string;
-  isAlt?: boolean;
   isFacturado: boolean;
-  paymentLabel: string;
-  paymentColor: string;
 }
-
 
 interface MonthlyData {
   month: string;
@@ -39,12 +35,10 @@ const DashboardPage: React.FC = () => {
     { name: 'En producción', value: '0', icon: 'precision_manufacturing', color: 'indigo-600', label: 'Taller', bgColor: 'bg-indigo-50' },
     { name: 'Listos para entregar', value: '0', icon: 'verified', color: 'amber-600', label: 'Listos', bgColor: 'bg-amber-50' },
     { name: 'Trabajos entregados', value: '0', icon: 'local_shipping', color: 'emerald-600', label: 'Entregados', bgColor: 'bg-emerald-50' },
-    { name: 'Facturado este mes', value: '$ 0,00', icon: 'description', color: 'blue-600', label: 'Facturación', bgColor: 'bg-blue-50' },
     { name: 'Cobrado este mes', value: '$ 0,00', icon: 'account_balance', color: 'primary', label: 'Caja', bgColor: 'bg-primary/10' },
     { name: 'Deuda Total', value: '$ 0,00', icon: 'money_off', color: 'error', label: 'Pendiente', bgColor: 'bg-error/10' },
   ]);
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
-
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [topProducts, setTopProducts] = useState<{name: string, qty: number}[]>([]);
   const [debtors, setDebtors] = useState<{name: string, balance: number}[]>([]);
@@ -52,6 +46,17 @@ const DashboardPage: React.FC = () => {
 
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
+
+  const getStatusInfo = (status: string) => {
+    switch (status) {
+      case 'PRESUPUESTADO': return { color: 'text-slate-500', bg: 'bg-slate-50', icon: 'description' };
+      case 'APROBADO': return { color: 'text-indigo-600', bg: 'bg-indigo-50', icon: 'thumb_up' };
+      case 'EN PRODUCCIÓN': return { color: 'text-blue-600', bg: 'bg-blue-50', icon: 'precision_manufacturing' };
+      case 'TERMINADO': return { color: 'text-amber-600', bg: 'bg-amber-50', icon: 'verified' };
+      case 'ENTREGADO': return { color: 'text-emerald-600', bg: 'bg-emerald-50', icon: 'local_shipping' };
+      default: return { color: 'text-slate-500', bg: 'bg-slate-50', icon: 'help' };
+    }
+  };
 
   useEffect(() => {
     if (!chartRef.current || !monthlyData.length) return;
@@ -63,14 +68,14 @@ const DashboardPage: React.FC = () => {
         labels: monthlyData.map(d => d.month),
         datasets: [
           {
-            label: 'Teórico',
+            label: 'Vendido (Aprobados)',
             data: monthlyData.map(d => d.theoretical),
             backgroundColor: 'rgba(53, 37, 205, 0.2)',
             borderRadius: 8,
             barPercentage: 0.6,
           },
           {
-            label: 'Cobrado',
+            label: 'Cobrado Real',
             data: monthlyData.map(d => d.collected),
             backgroundColor: 'rgba(53, 37, 205, 1)',
             borderRadius: 8,
@@ -114,84 +119,104 @@ const DashboardPage: React.FC = () => {
     return () => chartInstance.current?.destroy();
   }, [monthlyData]);
 
-  const fetchData = React.useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().split('T')[0];
 
-      // 1. Fetch Core Data
+      // 1. Fetch Core Data from Views & Tables
       const [
-        { data: jobStats }, 
-        { data: collCurrent }, 
-        { data: senaCurrent },
-        { data: invoiceCurrent },
-        { data: receiptCurrent }
+        { data: jobMetrics },
+        { data: clientBalances },
+        { data: currentPayments },
+        { data: currentReceipts },
+        { data: recentActivity }
       ] = await Promise.all([
-        supabase.from('t_trabajos').select('estado, total, sena, created_at, cliente_id, descripcion, id'),
-        supabase.from('t_comprobante_cobros').select('importe, fecha, observaciones').gte('fecha', firstDayOfMonth.split('T')[0]),
-        supabase.from('t_trabajos').select('sena, created_at').gte('created_at', firstDayOfMonth),
-        supabase.from('t_comprobantes').select('total').gte('fecha', firstDayOfMonth.split('T')[0]),
-        supabase.from('t_recibos').select('total, fecha').gte('fecha', firstDayOfMonth.split('T')[0])
+        supabase.from('v_metricas_trabajos').select('estado, total, fecha_aprobacion'),
+        supabase.from('v_saldo_clientes').select('*'),
+        supabase.from('t_pagos_trabajo').select('importe, fecha').gte('fecha', firstDay),
+        supabase.from('t_recibos').select('total, fecha').gte('fecha', firstDay),
+        supabase.from('v_metricas_trabajos')
+          .select('*, t_clientes(razon_social)')
+          .order('fecha_aprobacion', { ascending: false })
+          .limit(6)
       ]);
 
-      const inProduction = jobStats?.filter(j => j.estado === 'EN PRODUCCIÓN').length || 0;
-      const readyToDeliver = jobStats?.filter(j => j.estado === 'LISTO PARA ENTREGAR').length || 0;
-      const delivered = jobStats?.filter(j => j.estado === 'ENTREGADOS').length || 0;
+      // Metrics Calculation
+      const inProduction = jobMetrics?.filter(j => j.estado === 'EN PRODUCCIÓN').length || 0;
+      const readyToDeliver = jobMetrics?.filter(j => j.estado === 'TERMINADO').length || 0;
+      const delivered = jobMetrics?.filter(j => j.estado === 'ENTREGADO').length || 0;
 
-      // Logic: Sum Receipts + Independent Payments (excluding automatic Senas) + Monthly Senas
-      const totalColReceipts = receiptCurrent?.reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
-      const totalColPayments = collCurrent?.filter(p => !p.observaciones?.includes('Seña')).reduce((acc, curr) => acc + (curr.importe || 0), 0) || 0;
-      const totalColSenas = senaCurrent?.reduce((acc, curr) => acc + (curr.sena || 0), 0) || 0;
-      
-      const totalCollectedCurrent = totalColReceipts + totalColPayments + totalColSenas;
-      const totalInvoicedCurrent = invoiceCurrent?.reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
+      const totalColPayments = currentPayments?.reduce((acc, curr) => acc + (curr.importe || 0), 0) || 0;
+      const totalColReceipts = currentReceipts?.reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
+      const totalCollectedMonth = totalColPayments + totalColReceipts;
 
-      // 2. Monthly Evolution Data (Last 6 months)
-      const [
-        { data: allReceipts },
-        { data: allPayments }
-      ] = await Promise.all([
-        supabase.from('t_recibos').select('total, fecha').gte('fecha', sixMonthsAgo.split('T')[0]),
-        supabase.from('t_comprobante_cobros').select('importe, fecha, observaciones').gte('fecha', sixMonthsAgo.split('T')[0])
+      const totalDebtGlobal = clientBalances?.reduce((acc, c) => acc + (c.saldo_pendiente > 0 ? c.saldo_pendiente : 0), 0) || 0;
+
+      // 2. Monthly Evolution (Last 6 months)
+      const [{ data: historicalPayments }, { data: historicalReceipts }] = await Promise.all([
+        supabase.from('t_pagos_trabajo').select('importe, fecha').gte('fecha', sixMonthsAgo),
+        supabase.from('t_recibos').select('total, fecha').gte('fecha', sixMonthsAgo)
       ]);
-      
+
       const monthsNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
       const lastSix = Array.from({ length: 6 }).map((_, i) => {
         const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
         const targetMonth = d.getMonth();
         const targetYear = d.getFullYear();
         
-        const mTheoretical = jobStats?.filter(j => {
-          const cDate = new Date(j.created_at);
-          return cDate.getMonth() === targetMonth && cDate.getFullYear() === targetYear;
+        // Sold = Total of jobs approved in that month
+        const mTheoretical = jobMetrics?.filter(j => {
+          if (!j.fecha_aprobacion) return false;
+          const aDate = new Date(j.fecha_aprobacion);
+          return aDate.getMonth() === targetMonth && aDate.getFullYear() === targetYear;
         }).reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
 
-        const mReceipts = allReceipts?.filter(r => {
+        // Collected = Payments + Receipts in that month
+        const mPayments = historicalPayments?.filter(p => {
+          const pDate = new Date(p.fecha);
+          return pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear;
+        }).reduce((acc, curr) => acc + (curr.importe || 0), 0) || 0;
+
+        const mReceipts = historicalReceipts?.filter(r => {
           const rDate = new Date(r.fecha);
           return rDate.getMonth() === targetMonth && rDate.getFullYear() === targetYear;
         }).reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
 
-        const mPayments = allPayments?.filter(p => {
-          const pDate = new Date(p.fecha);
-          return pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear && !p.observaciones?.includes('Seña');
-        }).reduce((acc, curr) => acc + (curr.importe || 0), 0) || 0;
-
-        const mSenas = jobStats?.filter(j => {
-          const cDate = new Date(j.created_at);
-          return cDate.getMonth() === targetMonth && cDate.getFullYear() === targetYear;
-        }).reduce((acc, curr) => acc + (curr.sena || 0), 0) || 0;
-
         return {
           month: monthsNames[targetMonth],
           theoretical: mTheoretical,
-          collected: mReceipts + mPayments + mSenas
+          collected: mPayments + mReceipts
         };
       });
       setMonthlyData(lastSix);
 
-      // 3. Top Products Stats (omit for brevity, same logic)
+      // 3. Activity Mapping
+      setRecentJobs((recentActivity || []).map((j: any) => {
+        const info = getStatusInfo(j.estado);
+        return {
+          client: j.t_clientes?.razon_social || 'Consumidor Final',
+          description: j.nombre_trabajo || j.descripcion || 'Trabajo sin nombre',
+          status: j.estado,
+          statusColor: info.color,
+          statusIcon: info.icon,
+          date: j.fecha_aprobacion ? new Date(j.fecha_aprobacion).toLocaleDateString() : 'Pendiente',
+          total: `$ ${Number(j.total).toLocaleString('es-AR')}`,
+          isFacturado: j.facturado
+        };
+      }));
+
+      // 4. Debtors (Top 5)
+      setDebtors((clientBalances || [])
+        .filter(c => c.saldo_pendiente > 1)
+        .sort((a, b) => b.saldo_pendiente - a.saldo_pendiente)
+        .slice(0, 5)
+        .map(c => ({ name: c.razon_social, balance: c.saldo_pendiente }))
+      );
+
+      // 5. Top Products
       const { data: itemsData } = await supabase.from('t_trabajo_productos').select('cantidad, t_productos(nombre)');
       const productCounts: Record<string, number> = {};
       itemsData?.forEach((item: any) => {
@@ -200,73 +225,16 @@ const DashboardPage: React.FC = () => {
       });
       setTopProducts(Object.entries(productCounts).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5));
 
-      // 4. Debtors (Calculated balance per client)
-      const [
-        { data: clientsData }, 
-        { data: voucherTotals }, 
-        { data: receiptTotals }, 
-        { data: paymentTotals }
-      ] = await Promise.all([
-        supabase.from('t_clientes').select('id, razon_social'),
-        supabase.from('t_comprobantes').select('cliente_id, total'),
-        supabase.from('t_recibos').select('cliente_id, total'),
-        supabase.from('t_comprobante_cobros').select('importe, observaciones, t_comprobantes!inner(cliente_id)')
-      ]);
-
-      const globalJobSenas = jobStats?.reduce((acc: any, j: any) => {
-        acc[j.cliente_id] = (acc[j.cliente_id] || 0) + (j.sena || 0);
-        return acc;
-      }, {}) || {};
-
-      const totalDebtValue = (clientsData || []).reduce((sum, client) => {
-        const tDebe = (voucherTotals || []).filter(v => v.cliente_id === client.id).reduce((acc, curr) => acc + Number(curr.total), 0);
-        const tReceipts = (receiptTotals || []).filter(r => r.cliente_id === client.id).reduce((acc, curr) => acc + Number(curr.total), 0);
-        const tPayments = (paymentTotals || []).filter((p: any) => p.t_comprobantes?.cliente_id === client.id && !p.observaciones?.includes('Seña')).reduce((acc, curr) => acc + Number(curr.importe), 0);
-        const tSenas = globalJobSenas[client.id] || 0;
-        
-        const balance = tDebe - (tReceipts + tPayments + tSenas);
-        return sum + (balance > 1 ? balance : 0);
-      }, 0);
-
-      const calculatedDebtors = (clientsData || []).map(client => {
-        const tDebe = (voucherTotals || []).filter(v => v.cliente_id === client.id).reduce((acc, curr) => acc + Number(curr.total), 0);
-        const tReceipts = (receiptTotals || []).filter(r => r.cliente_id === client.id).reduce((acc, curr) => acc + Number(curr.total), 0);
-        const tPayments = (paymentTotals || []).filter((p: any) => p.t_comprobantes?.cliente_id === client.id && !p.observaciones?.includes('Seña')).reduce((acc, curr) => acc + Number(curr.importe), 0);
-        const tSenas = globalJobSenas[client.id] || 0;
-        return { name: client.razon_social, balance: tDebe - (tReceipts + tPayments + tSenas) };
-      })
-      .filter(d => d.balance > 1)
-      .sort((a, b) => b.balance - a.balance)
-      .slice(0, 5);
-
-      setDebtors(calculatedDebtors);
-
       setMetrics([
         { name: 'En producción', value: inProduction.toString(), icon: 'precision_manufacturing', color: 'indigo-600', label: 'Taller', bgColor: 'bg-indigo-50' },
         { name: 'Listos para entregar', value: readyToDeliver.toString(), icon: 'verified', color: 'amber-600', label: 'Listos', bgColor: 'bg-amber-50' },
         { name: 'Trabajos entregados', value: delivered.toString(), icon: 'local_shipping', color: 'emerald-600', label: 'Entregados', bgColor: 'bg-emerald-50' },
-        { name: 'Facturado este mes', value: `$ ${totalInvoicedCurrent.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, icon: 'description', color: 'blue-600', label: 'Facturación', bgColor: 'bg-blue-50' },
-        { name: 'Cobrado este mes', value: `$ ${totalCollectedCurrent.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, icon: 'account_balance', color: 'primary', label: 'Caja', bgColor: 'bg-primary/10' },
-        { name: 'Deuda Total', value: `$ ${totalDebtValue.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, icon: 'money_off', color: 'error', label: 'Pendiente', bgColor: 'bg-error/10' },
+        { name: 'Cobrado este mes', value: `$ ${totalCollectedMonth.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, icon: 'account_balance', color: 'primary', label: 'Caja', bgColor: 'bg-primary/10' },
+        { name: 'Deuda Total', value: `$ ${totalDebtGlobal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, icon: 'money_off', color: 'error', label: 'Pendiente', bgColor: 'bg-error/10' },
       ]);
 
-      const { data: recentData } = await supabase.from('t_trabajos').select(`id, descripcion, estado, total, created_at, t_clientes (razon_social), t_comprobante_trabajos(comprobante_id)`).order('created_at', { ascending: false }).limit(6);
-      setRecentJobs(recentData?.map((j: any) => ({
-        client: Array.isArray(j.t_clientes) ? j.t_clientes[0]?.razon_social : j.t_clientes?.razon_social || 'Desconocido',
-        description: j.descripcion,
-        status: j.estado,
-        statusColor: j.estado === 'EN PRODUCCIÓN' ? 'indigo' : j.estado === 'LISTO PARA ENTREGAR' ? 'amber' : 'emerald',
-        statusIcon: j.estado === 'EN PRODUCCIÓN' ? 'precision_manufacturing' : j.estado === 'LISTO PARA ENTREGAR' ? 'verified' : 'local_shipping',
-        date: new Date(j.created_at).toLocaleDateString(),
-        total: `$ ${j.total.toLocaleString()}`,
-        isFacturado: (j.t_comprobante_trabajos || []).length > 0,
-        paymentLabel: (j.t_comprobante_trabajos || []).length > 0 ? 'Facturado' : 'Pendiente',
-        paymentColor: (j.t_comprobante_trabajos || []).length > 0 ? 'emerald' : 'amber'
-      })) || []);
-
-    } catch (error: any) {
-      console.error(error);
-      toast.error('Error al cargar datos: ' + error.message);
+    } catch (err: any) {
+      toast.error('Error al cargar datos del dashboard: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -277,190 +245,144 @@ const DashboardPage: React.FC = () => {
   }, [fetchData]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-5">
-        {metrics.map((metric) => (
-          <div key={metric.name} className="bg-surface-container-lowest p-5 rounded-[2rem] shadow-sm border border-outline-variant/10 hover:border-primary/50 transition-all group">
-            <div className="flex justify-between items-start mb-3">
-              <div className={`p-3 ${metric.bgColor || 'bg-primary/10'} rounded-2xl`}>
-                <span className={`material-symbols-outlined text-xl`}>{metric.icon}</span>
+    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
+      {/* Metrics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {metrics.map((metric, idx) => (
+          <div key={idx} className={`p-6 rounded-[2.5rem] border border-outline-variant/10 shadow-sm flex items-center justify-between group hover:scale-[1.02] transition-all bg-white`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-2xl ${metric.bgColor} flex items-center justify-center`}>
+                <span className={`material-symbols-outlined text-2xl text-${metric.color}`}>{metric.icon}</span>
               </div>
-              <span className={`text-[9px] font-black tracking-widest uppercase text-on-surface-variant`}>
-                {metric.label}
-              </span>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">{metric.name}</p>
+                <h3 className="text-2xl font-headline font-extrabold text-on-surface">{metric.value}</h3>
+              </div>
             </div>
-            <p className="text-outline text-[10px] font-bold uppercase tracking-wider mb-1 line-clamp-1">{metric.name}</p>
-            <h3 className="text-xl font-headline font-black text-on-surface truncate">
-              {loading ? '...' : metric.value}
-            </h3>
+            <span className="text-[10px] font-black uppercase tracking-tighter text-outline/30 group-hover:text-primary/40 transition-colors">{metric.label}</span>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Monthly Chart & Table */}
-        <div className="lg:col-span-8 space-y-8">
-          {/* Main Chart Box */}
-          <div className="bg-surface-container-lowest p-8 rounded-[3rem] border border-outline-variant/10 shadow-sm overflow-hidden relative group">
-            <div className="flex justify-between items-center mb-12">
-              <div>
-                <h3 className="text-2xl font-headline font-black text-on-surface mb-1">Ingresos y Cobros</h3>
-                <p className="text-sm font-medium text-on-surface-variant flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-primary/30"></span> Evolución Mensual (Últimos 6 meses)
-                </p>
-              </div>
-              <div className="p-4 bg-primary/5 rounded-2xl">
-                 <span className="material-symbols-outlined text-primary font-bold">trending_up</span>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Sales Chart */}
+        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border border-outline-variant/10 shadow-sm space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h4 className="text-lg font-headline font-extrabold text-on-surface">Evolución Comercial</h4>
+              <p className="text-xs text-on-surface-variant font-bold">Ventas aprobadas vs Cobros reales (6 meses)</p>
             </div>
-
-            <div className="relative h-72 w-full px-2">
-              <canvas ref={chartRef} />
-            </div>
-
-            <div className="mt-12 bg-surface-container/30 p-6 rounded-[2rem] flex flex-wrap items-center gap-6">
-               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 rounded-sm bg-primary/20"></div>
-                 <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Ingreso Teórico (Vendido)</span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 rounded-sm bg-primary"></div>
-                 <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Ingreso Efectivo (Cobrado)</span>
-               </div>
-               <p className="ml-auto text-[10px] font-medium text-on-surface-variant/50 text-right italic">
-                 * Incluye cobros directos y señas en preventa.
-               </p>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-primary/20"></div>
+                <span className="text-[10px] font-black uppercase tracking-widest">Vendido</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-primary"></div>
+                <span className="text-[10px] font-black uppercase tracking-widest">Cobrado</span>
+              </div>
             </div>
           </div>
-
-          {/* Recent Jobs Table */}
-          <div className="bg-surface-container-lowest rounded-[3rem] border border-outline-variant/10 shadow-sm overflow-hidden">
-            <div className="p-8 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-lowest/50">
-              <div>
-                <h3 className="text-xl font-headline font-black text-on-surface uppercase tracking-tight">Actividad en Tiempo Real</h3>
-                <p className="text-[10px] font-black text-outline uppercase tracking-[0.2em] mt-1">Monitoreo de producción</p>
-              </div>
-              <button className="px-5 py-2.5 rounded-full bg-primary/5 text-primary text-[10px] font-black uppercase hover:bg-primary/10 transition-colors">
-                Historial completo
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-surface-container/30">
-                  <tr>
-                    <th className="px-8 py-5 text-[10px] font-black text-outline uppercase tracking-widest">Cliente / ID</th>
-                    <th className="px-6 py-5 text-[10px] font-black text-outline uppercase tracking-widest">Descripción</th>
-                    <th className="px-6 py-5 text-[10px] font-black text-outline uppercase tracking-widest text-center">Estado</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-outline uppercase tracking-widest text-right">Monto</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-outline-variant/5">
-                  {recentJobs.map((j, idx) => (
-                    <tr key={idx} className="hover:bg-primary/[0.02] transition-colors group">
-                      <td className="px-8 py-5">
-                         <p className="text-sm font-bold text-on-surface group-hover:text-primary transition-colors">{j.client}</p>
-                         <p className="text-[9px] text-outline font-black mt-0.5 tracking-tighter uppercase">{j.date}</p>
-                      </td>
-                      <td className="px-6 py-5">
-                         <p className="text-xs text-on-surface-variant font-medium line-clamp-1">{j.description}</p>
-                      </td>
-                      <td className="px-6 py-5 text-center">
-                         <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter bg-${j.statusColor}-100 text-${j.statusColor}-700`}>
-                           {j.status}
-                         </span>
-                      </td>
-                      <td className="px-8 py-5 text-right">
-                         <p className="text-sm font-black text-on-surface">{j.total}</p>
-                         <p className={`text-[8px] font-black uppercase text-${j.paymentColor}-600`}>{j.paymentLabel}</p>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="h-64 relative">
+            <canvas ref={chartRef}></canvas>
           </div>
         </div>
 
-        {/* Right Column: Mini Chart & Products */}
-        <div className="lg:col-span-4 space-y-8">
-           {/* Ranking de Deudores */}
-           <div className="bg-on-surface p-8 rounded-[3rem] shadow-xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/20 blur-[80px] -mr-16 -mt-16 group-hover:bg-primary/40 transition-colors"></div>
-            
-            <div className="relative mb-8 flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-headline font-black text-surface italic uppercase tracking-tighter">Ranking Deudores</h3>
-                <p className="text-[9px] font-black text-outline-variant uppercase tracking-[0.2em] opacity-60">Top 5 compromisos pendientes</p>
-              </div>
-              <span className="material-symbols-outlined text-primary text-3xl font-bold">money_off</span>
-            </div>
-
-            <div className="space-y-6 relative">
-              {debtors.length > 0 ? debtors.map((d, i) => (
-                <div key={i} className="group/item">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[11px] font-bold text-surface/90 uppercase tracking-tight truncate max-w-[150px]">{d.name}</span>
-                    <span className="text-[11px] font-black text-primary">$ {d.balance.toLocaleString()}</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-surface/5 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-primary/40 to-primary transition-all duration-1000 delay-300"
-                      style={{ width: `${Math.min((d.balance / (debtors[0]?.balance || 1)) * 100, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )) : (
-                <div className="py-8 text-center bg-surface/5 rounded-2xl border border-dashed border-surface/20">
-                   <p className="text-[10px] font-black text-surface/40 uppercase tracking-widest italic">No hay deuda detectada</p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-10 pt-6 border-t border-surface/10">
-               <p className="text-[9px] text-surface/50 font-medium italic leading-relaxed">
-                 * El balance refleja la diferencia entre facturación real y cobros (incluyendo señas).
-               </p>
-            </div>
+        {/* Top Debtors */}
+        <div className="bg-white p-8 rounded-[2.5rem] border border-outline-variant/10 shadow-sm space-y-6">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded-xl bg-error/10 flex items-center justify-center text-error">
+                <span className="material-symbols-outlined text-sm">trending_down</span>
+             </div>
+             <h4 className="text-lg font-headline font-extrabold text-on-surface">Mayores Deudores</h4>
           </div>
-
-          {/* Top Products Box */}
-          <div className="bg-surface-container-lowest p-8 rounded-[3rem] border border-outline-variant/10 shadow-sm relative overflow-hidden">
-            <div className="flex justify-between items-center mb-8">
-               <div>
-                <h3 className="text-xl font-headline font-black text-on-surface uppercase tracking-tight">Best Sellers</h3>
-                <p className="text-[10px] font-black text-outline uppercase tracking-[0.2em]">Por volumen de salida</p>
-              </div>
-              <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center">
-                 <span className="material-symbols-outlined text-amber-700 font-bold">workspace_premium</span>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {topProducts.map((p, i) => (
-                <div key={p.name} className="flex items-center gap-4 group/prod">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${
-                    i === 0 ? 'bg-amber-100 text-amber-700' : 
-                    i === 1 ? 'bg-slate-100 text-slate-700' :
-                    'bg-primary/5 text-primary'
-                  }`}>
-                    {i + 1}
+          <div className="space-y-4">
+            {debtors.length > 0 ? debtors.map((debtor, idx) => (
+              <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-surface-container-low hover:bg-surface-container-lowest transition-colors border border-outline-variant/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[10px] font-black text-primary shadow-sm border border-outline-variant/10">
+                    {idx + 1}
                   </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between mb-1">
-                       <span className="text-[10px] font-black text-on-surface uppercase tracking-tight truncate max-w-[120px]">{p.name}</span>
-                       <span className="text-[10px] font-black text-primary">{p.qty} unid.</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-primary rounded-full group-hover/prod:opacity-80 transition-opacity" 
-                        style={{ width: `${(p.qty / (topProducts[0]?.qty || 1)) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
+                  <span className="text-xs font-black text-on-surface-variant truncate max-w-[120px]">{debtor.name}</span>
                 </div>
-              ))}
-            </div>
+                <span className="text-xs font-black text-error">$ {debtor.balance.toLocaleString('es-AR')}</span>
+              </div>
+            )) : (
+              <div className="text-center py-10 opacity-20 italic text-xs font-bold">No hay deudores registrados</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Recent Activity */}
+        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border border-outline-variant/10 shadow-sm space-y-6">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                <span className="material-symbols-outlined text-sm">history</span>
+             </div>
+             <h4 className="text-lg font-headline font-extrabold text-on-surface">Actividad en Tiempo Real</h4>
+          </div>
+          <div className="overflow-x-auto no-scrollbar">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-outline-variant/10">
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Cliente</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Trabajo</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Estado</th>
+                  <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/5">
+                {recentJobs.map((job, idx) => (
+                  <tr key={idx} className="group hover:bg-surface-container-low/30 transition-colors">
+                    <td className="py-4">
+                      <p className="text-xs font-black text-on-surface">{job.client}</p>
+                      <p className="text-[10px] font-bold text-on-surface-variant opacity-60">{job.date}</p>
+                    </td>
+                    <td className="py-4">
+                      <p className="text-xs font-bold text-on-surface-variant truncate max-w-[200px]">{job.description}</p>
+                    </td>
+                    <td className="py-4">
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${job.statusColor.replace('text-', 'bg-').replace('600', '100')} ${job.statusColor} text-[10px] font-black uppercase tracking-tighter`}>
+                        <span className="material-symbols-outlined text-[14px]">{job.statusIcon}</span>
+                        {job.status}
+                      </div>
+                    </td>
+                    <td className="py-4 text-right">
+                      <span className="text-xs font-black text-on-surface">{job.total}</span>
+                      {job.isFacturado && <span className="ml-2 material-symbols-outlined text-emerald-500 text-sm align-middle">verified</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Top Products */}
+        <div className="bg-white p-8 rounded-[2.5rem] border border-outline-variant/10 shadow-sm space-y-6">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
+                <span className="material-symbols-outlined text-sm">stars</span>
+             </div>
+             <h4 className="text-lg font-headline font-extrabold text-on-surface">Más Vendidos</h4>
+          </div>
+          <div className="space-y-4">
+            {topProducts.map((p, idx) => (
+              <div key={idx} className="space-y-2">
+                <div className="flex justify-between text-xs font-black uppercase tracking-tighter">
+                  <span className="text-on-surface-variant">{p.name}</span>
+                  <span className="text-primary">{p.qty} unid.</span>
+                </div>
+                <div className="h-1.5 w-full bg-surface-container-low rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-primary rounded-full transition-all duration-1000" 
+                    style={{ width: `${(p.qty / topProducts[0].qty) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
