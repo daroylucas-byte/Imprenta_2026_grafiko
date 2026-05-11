@@ -9,14 +9,16 @@ interface Client {
   id: string;
   cuit: string;
   razon_social: string;
+  nombre?: string;
   email: string;
   telefonos: string;
   situacion_iva: string;
   es_mayorista: boolean;
   created_at: string;
-  saldo?: number;
-  saldo_total?: number;
-  saldo_disponible_cc?: number;
+  total_deuda?: number;
+  total_cobrado?: number;
+  saldo_pendiente?: number;
+  credito_disponible?: number;
 }
 
 const ClientsPage: React.FC = () => {
@@ -161,14 +163,14 @@ const ClientsPage: React.FC = () => {
                        </div>
                     </td>
                     <td className="px-6 py-5">
-                       <p className={`text-sm font-black ${Number(client.saldo_total || 0) > 0 ? 'text-error' : Number(client.saldo_total || 0) < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
-                         $ {Number(client.saldo_total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                       </p>
-                       {Number(client.saldo_disponible_cc || 0) > 0 && (
-                         <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">
-                           Crédito CC: $ {Number(client.saldo_disponible_cc).toLocaleString('es-AR')}
-                         </p>
-                       )}
+                        <p className={`text-sm font-black ${Number(client.saldo_pendiente || 0) > 0 ? 'text-error' : 'text-on-surface'}`}>
+                          $ {Number(client.saldo_pendiente || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </p>
+                        {Number(client.credito_disponible || 0) > 0 && (
+                          <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">
+                            Crédito a favor: $ {Number(client.credito_disponible).toLocaleString('es-AR')}
+                          </p>
+                        )}
                     </td>
                     <td className="px-8 py-5 text-center">
                        <div className="flex justify-center gap-2">

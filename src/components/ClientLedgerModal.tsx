@@ -28,7 +28,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
   const [ledger, setLedger] = useState<LedgerItem[]>([]);
   const [pendingJobs, setPendingJobs] = useState<any[]>([]);
   const [fullClient, setFullClient] = useState<any>(null);
-  const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo: 0, disponible_cc: 0 });
+  const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo_pendiente: 0, credito_disponible: 0, saldo_neto: 0 });
   const [activeTab, setActiveTab] = useState<'historial' | 'deudas'>('historial');
 
   const fetchLedgerData = useCallback(async () => {
@@ -102,29 +102,42 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
         });
       });
 
-      // Fetch Vouchers if any (Debe)
-      const { data: vouchers } = await supabase.from('t_comprobantes').select('*').eq('cliente_id', client.id);
+      // Fetch Vouchers (Facturas, Notas de Débito, etc.)
+      const { data: vouchers } = await supabase
+        .from('t_comprobantes')
+        .select('*, t_comprobante_trabajos(trabajo_id)')
+        .eq('cliente_id', client.id)
+        .neq('estado', 'anulado');
+
       vouchers?.forEach(v => {
+        // Check if linked to any work
+        const isLinkedToJob = v.t_comprobante_trabajos && (v.t_comprobante_trabajos as any[]).length > 0;
         items.push({
           id: v.id,
           fecha: v.fecha,
-          tipo: v.tipo,
+          tipo: v.tipo || 'COMPROBANTE',
           numero: v.numero,
-          descripcion: v.observaciones || 'Factura / Nota de Débito',
-          debe: Number(v.total),
-          haber: 0
+          descripcion: v.observaciones || (isLinkedToJob ? 'Documentación de Venta' : 'Venta / Facturación'),
+          debe: isLinkedToJob ? 0 : Number(v.total),
+          haber: 0,
+          is_voucher: true
         });
       });
 
-      // Add Jobs as Debt (Debe) - For the ledger, a job generates debt on approval
-      const { data: approvedJobs } = await supabase.from('t_trabajos').select('*').eq('cliente_id', client.id).not('fecha_aprobacion', 'is', null);
+      // Fetch ALL approved jobs that are NOT cancelled/annulled
+      const { data: approvedJobs } = await supabase.from('t_trabajos')
+        .select('*')
+        .eq('cliente_id', client.id)
+        .not('fecha_aprobacion', 'is', null)
+        .filter('estado', 'not.in', '(CANCELADO,ANULADO)');
+
       approvedJobs?.forEach(j => {
         items.push({
           id: j.id,
           fecha: j.fecha_aprobacion,
-          tipo: 'TRABAJO',
+          tipo: 'VENTA',
           numero: j.id.slice(0,8),
-          descripcion: j.descripcion,
+          descripcion: j.descripcion || 'Trabajo Aprobado',
           debe: Number(j.total),
           haber: 0
         });
@@ -147,11 +160,15 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
       });
 
       setLedger(finalLedger.reverse());
+      const sPendiente = clientFinData?.saldo_pendiente || 0;
+      const cDisponible = clientFinData?.credito_disponible || 0;
+
       setTotals({ 
         debe: totalDebe, 
         haber: totalHaber, 
-        saldo: clientFinData?.saldo_total || currentSaldo,
-        disponible_cc: clientFinData?.saldo_disponible_cc || 0
+        saldo_pendiente: sPendiente,
+        credito_disponible: cDisponible,
+        saldo_neto: sPendiente - cDisponible
       });
 
     } catch (err: any) {
@@ -162,7 +179,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
   }, [client.id]);
 
   const applyFIFOPayments = async () => {
-    if (totals.disponible_cc <= 0) {
+    if (totals.credito_disponible <= 0) {
       toast.error('No hay saldo disponible en cuenta corriente para aplicar');
       return;
     }
@@ -276,12 +293,12 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
     doc.line(120, 57, 195, 57);
     
     doc.setFontSize(10);
-    doc.text(`Total Owed (Debe): $${totals.debe.toLocaleString('es-AR')}`, 120, 65);
-    doc.text(`Total Paid (Haber): $${totals.haber.toLocaleString('es-AR')}`, 120, 72);
+    doc.text(`Total Deuda (Debe): $${totals.debe.toLocaleString('es-AR')}`, 120, 65);
+    doc.text(`Total Cobrado (Haber): $${totals.haber.toLocaleString('es-AR')}`, 120, 72);
     
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(`SALDO ACTUAL: $${totals.saldo.toLocaleString('es-AR')}`, 120, 85);
+    doc.text(`BALANCE CONSOLIDADO: $${Math.abs(totals.saldo_neto).toLocaleString('es-AR')}`, 120, 85);
     doc.setFont('helvetica', 'normal');
 
     // --- Ledger Table ---
@@ -330,9 +347,10 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
           </div>
           <div className="flex items-center gap-6">
              <div className="text-right">
-                <p className="text-[10px] font-black text-outline uppercase tracking-widest leading-none mb-1">Saldo Actual</p>
-                <p className={`text-2xl font-black ${totals.saldo > 0 ? 'text-error' : totals.saldo < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
-                  ${totals.saldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                <p className="text-[10px] font-black text-outline uppercase tracking-widest leading-none mb-1">Balance Consolidado</p>
+                <p className={`text-2xl font-black ${totals.saldo_neto > 0 ? 'text-error' : totals.saldo_neto < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
+                  ${Math.abs(totals.saldo_neto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  <span className="text-[10px] ml-1 uppercase">{totals.saldo_neto > 0 ? 'Debe' : totals.saldo_neto < 0 ? 'A Favor' : ''}</span>
                 </p>
              </div>
              <button onClick={onClose} className="p-3 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-2xl transition-all">
@@ -344,24 +362,24 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
         {/* Totals Summary Bar */}
         <div className="grid grid-cols-4 divide-x divide-outline-variant/10 bg-white border-b border-outline-variant/5">
            <div className="px-10 py-6">
-              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Deuda por Trabajos</p>
-              <p className="text-xl font-black text-on-surface">${Number(fullClient?.saldo_trabajos || 0).toLocaleString('es-AR')}</p>
+              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Total Deuda</p>
+              <p className="text-xl font-black text-on-surface">${Number(fullClient?.total_deuda || 0).toLocaleString('es-AR')}</p>
            </div>
            <div className="px-10 py-6 bg-indigo-50/30">
-              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Disponible en CC</p>
-              <p className="text-xl font-black text-indigo-700">${Number(fullClient?.saldo_disponible_cc || 0).toLocaleString('es-AR')}</p>
+              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Crédito Disponible</p>
+              <p className="text-xl font-black text-indigo-700">${Number(fullClient?.credito_disponible || 0).toLocaleString('es-AR')}</p>
            </div>
            <div className="px-10 py-6">
-              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Saldo Consolidado</p>
-              <p className={`text-xl font-black ${totals.saldo > 0 ? 'text-error' : 'text-emerald-600'}`}>
-                ${Math.abs(totals.saldo).toLocaleString('es-AR')}
-                <span className="text-[10px] ml-1 uppercase">{totals.saldo > 0 ? 'Deudor' : 'A Favor'}</span>
+              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Saldo Pendiente</p>
+              <p className={`text-xl font-black ${totals.saldo_pendiente > 0 ? 'text-error' : 'text-emerald-600'}`}>
+                ${totals.saldo_pendiente.toLocaleString('es-AR')}
+                <span className="text-[10px] ml-1 uppercase">{totals.saldo_pendiente > 0 ? 'Deudor' : 'Al día'}</span>
               </p>
            </div>
            <div className="px-8 py-6 flex items-center justify-center bg-slate-50">
               <button 
                 onClick={applyFIFOPayments}
-                disabled={loading || totals.disponible_cc <= 0 || pendingJobs.length === 0}
+                disabled={loading || totals.credito_disponible <= 0 || pendingJobs.length === 0}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-900/10 hover:bg-primary transition-all active:scale-95 disabled:opacity-30 disabled:grayscale"
               >
                 <span className="material-symbols-outlined text-lg">auto_fix_high</span>
@@ -419,7 +437,11 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                       )}
                     </td>
                     <td className="bg-white px-6 py-5 border-y border-outline-variant/10 text-right">
-                       {item.debe > 0 && <span className="text-sm font-black text-on-surface">${item.debe.toLocaleString('es-AR')}</span>}
+                       {(item.debe > 0 || (item as any).is_voucher) && (
+                         <span className={`text-sm font-black ${item.debe === 0 ? 'text-outline/40' : 'text-on-surface'}`}>
+                           {item.debe > 0 ? `$${item.debe.toLocaleString('es-AR')}` : '---'}
+                         </span>
+                       )}
                     </td>
                     <td className="bg-white px-6 py-5 border-y border-outline-variant/10 text-right">
                        {item.haber > 0 && <span className="text-sm font-black text-emerald-600">${item.haber.toLocaleString('es-AR')}</span>}

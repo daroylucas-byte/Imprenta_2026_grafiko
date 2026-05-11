@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
+import { printJobVoucher } from '../utils/printJob';
 
 interface JobModalProps {
   jobId?: string;
@@ -30,6 +31,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const [saldoData, setSaldoData] = useState<any>(null);
   const [pagos, setPagos] = useState<any[]>([]);
   const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
+  const [clientCredit, setClientCredit] = useState(0);
+  const [applyingCredit, setApplyingCredit] = useState(false);
   
   const [currentItem, setCurrentItem] = useState<any>({
     producto_id: '',
@@ -125,6 +128,29 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         .eq('trabajo_id', jobId)
         .order('fecha', { ascending: false });
       setPagos(pData || []);
+      
+      // Fetch job items
+      const { data: iData } = await supabase
+        .from('t_trabajo_productos')
+        .select('*, t_productos(nombre)')
+        .eq('trabajo_id', jobId);
+      
+      if (iData) {
+        setItems(iData.map(item => ({
+          ...item,
+          nombre: (item as any).t_productos?.nombre || 'Producto'
+        })));
+      }
+
+      // Fetch client's global credit from the other view
+      if (data?.cliente_id) {
+        const { data: cData } = await supabase
+          .from('v_saldo_clientes')
+          .select('credito_disponible')
+          .eq('id', data.cliente_id)
+          .single();
+        setClientCredit(cData?.credito_disponible || 0);
+      }
 
     } catch (err: any) {
       toast.error('Error al cargar el trabajo: ' + err.message);
@@ -298,6 +324,78 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     }
   };
 
+  const applyClientCredit = async () => {
+    if (!jobId || clientCredit <= 0) return;
+    
+    setApplyingCredit(true);
+    try {
+      // 1. Fetch receipts and their applications separately
+      const { data: receipts, error: rErr } = await supabase
+        .from('t_recibos')
+        .select('id, total')
+        .eq('cliente_id', watch('cliente_id'));
+
+      if (rErr) throw rErr;
+
+      const { data: apps, error: aErr } = await supabase
+        .from('t_recibo_trabajos')
+        .select('recibo_id, monto_aplicado')
+        .in('recibo_id', receipts.map(r => r.id));
+
+      if (aErr) throw aErr;
+
+      // Map applications to receipts
+      const usedByReceipt = (apps || []).reduce((acc: any, curr) => {
+        acc[curr.recibo_id] = (acc[curr.recibo_id] || 0) + Number(curr.monto_aplicado);
+        return acc;
+      }, {});
+
+      // 2. Calculate remaining debt for this job
+      const debt = Number(saldoData?.saldo_pendiente) || 0;
+      if (debt <= 0) {
+        toast.error('El trabajo ya está saldado');
+        return;
+      }
+
+      let remainingDebt = debt;
+      const applications = [];
+
+      // 3. Match credit from receipts to this job (FIFO)
+      for (const r of (receipts || [])) {
+        if (remainingDebt <= 0) break;
+
+        const alreadyUsed = usedByReceipt[r.id] || 0;
+        const available = Number(r.total) - alreadyUsed;
+
+        if (available > 0) {
+          const toApply = Math.min(available, remainingDebt);
+          applications.push({
+            recibo_id: r.id,
+            trabajo_id: jobId,
+            monto_aplicado: toApply
+          });
+          remainingDebt -= toApply;
+        }
+      }
+
+      if (applications.length === 0) {
+        toast.error('No se encontró crédito real disponible');
+        return;
+      }
+
+      // 4. Save applications
+      const { error: appErr } = await supabase.from('t_recibo_trabajos').insert(applications);
+      if (appErr) throw appErr;
+
+      toast.success('Crédito aplicado correctamente');
+      fetchJobDetails(); // Refresh financial data
+    } catch (err: any) {
+      toast.error('Error al aplicar crédito: ' + err.message);
+    } finally {
+      setApplyingCredit(false);
+    }
+  };
+
   const registerDirectPayment = async (paymentData: any) => {
     if (!jobId) return;
     setLoading(true);
@@ -333,9 +431,21 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
               {jobId ? 'Actualizar especificaciones técnicas' : 'Configuración técnica de producción'}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-colors transition-transform active:scale-90">
-            <span className="material-symbols-outlined text-2xl md:text-3xl">close</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {jobId && (
+              <button 
+                type="button"
+                onClick={() => printJobVoucher(jobId)}
+                className="p-2 hover:bg-indigo-50 text-indigo-600 rounded-full transition-colors transition-transform active:scale-90"
+                title="Imprimir comprobante"
+              >
+                <span className="material-symbols-outlined text-2xl md:text-3xl">print</span>
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-colors transition-transform active:scale-90">
+              <span className="material-symbols-outlined text-2xl md:text-3xl">close</span>
+            </button>
+          </div>
         </div>
 
         {fetching ? (
@@ -668,6 +778,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     <h4 className="text-sm font-black uppercase tracking-[0.2em]">Estado Financiero del Trabajo</h4>
                   </div>
                   <div className="flex gap-2">
+                     <button 
+                       type="button"
+                       onClick={() => jobId && printJobVoucher(jobId)}
+                       className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all active:scale-95 border border-indigo-100"
+                     >
+                       <span className="material-symbols-outlined text-sm">print</span>
+                       Imprimir
+                     </button>
                      {saldoData?.saldo_pendiente > 0 && (
                        <span className="px-3 py-1 bg-error/10 text-error rounded-full text-[10px] font-black uppercase tracking-tighter">Deuda Pendiente</span>
                      )}
@@ -686,9 +804,22 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Pagos Directos</p>
                     <p className="text-xl font-black text-emerald-700">$ {(Number(saldoData?.total_pagado_directo) || 0).toLocaleString('es-AR')}</p>
                   </div>
-                  <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100/50">
-                    <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-1">Aplicado de CC</p>
-                    <p className="text-xl font-black text-indigo-700">$ {(Number(saldoData?.total_aplicado_cc) || 0).toLocaleString('es-AR')}</p>
+                  <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100/50 flex flex-col justify-between min-h-[110px]">
+                    <div>
+                      <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-1">Aplicado de CC</p>
+                      <p className="text-xl font-black text-indigo-700">$ {(Number(saldoData?.total_aplicado_cc) || 0).toLocaleString('es-AR')}</p>
+                    </div>
+                    {clientCredit > 0 && (Number(saldoData?.saldo_pendiente) || 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={applyClientCredit}
+                        disabled={applyingCredit}
+                        className="mt-3 w-full py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-1 shadow-md shadow-indigo-200 active:scale-95 disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">payments</span>
+                        {applyingCredit ? 'Aplicando...' : `Usar CC ($${clientCredit.toLocaleString('es-AR')})`}
+                      </button>
+                    )}
                   </div>
                   <div className={`p-5 rounded-3xl border shadow-sm ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'bg-error/5 border-error/20' : 'bg-slate-50 border-outline-variant/10'}`}>
                     <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'text-error' : 'text-outline'}`}>Saldo Restante</p>

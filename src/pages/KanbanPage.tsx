@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import JobModal from '../components/JobModal';
 import BillingModal from '../components/BillingModal';
+import { printJobVoucher } from '../utils/printJob';
 
 interface Job {
   id: string;
@@ -73,11 +74,17 @@ const KanbanPage: React.FC = () => {
       const updateData: any = { estado: newStatus };
 
       // Handle timestamps for forward moves
+      const approvalStatuses = ['APROBADO', 'EN PRODUCCIÓN', 'LISTO PARA ENTREGAR', 'ENTREGADOS'];
+      if (approvalStatuses.includes(newStatus) && !updateData.fecha_aprobacion) {
+        // We set it only if it wasn't set before
+        updateData.fecha_aprobacion = new Date().toISOString().split('T')[0];
+      }
       if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_pase_produccion = new Date().toISOString();
       if (newStatus === 'LISTO PARA ENTREGAR') updateData.fecha_prod_fin = new Date().toISOString();
       if (newStatus === 'ENTREGADOS') updateData.fecha_entregado = new Date().toISOString();
 
       // Clear timestamps for backward moves
+      if (newStatus === 'PRESUPUESTADO') updateData.fecha_aprobacion = null;
       if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_prod_fin = null;
       if (newStatus === 'LISTO PARA ENTREGAR') {
         // If we are coming back from ENTREGADOS, we should clear fecha_entregado
@@ -324,6 +331,16 @@ const KanbanPage: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              printJobVoucher(job.id);
+                            }}
+                            className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-all"
+                            title="Imprimir comprobante"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">print</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedJobId(job.id);
                               setIsModalOpen(true);
                             }}
@@ -422,7 +439,8 @@ const KanbanPage: React.FC = () => {
                           </button>
                         )}
 
-                        {col.status === 'TERMINADO' && (
+                        {/* Billing Action - Hidden for now */}
+                        {false && col.status === 'TERMINADO' && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -549,6 +567,15 @@ const KanbanPage: React.FC = () => {
                               </button>
                             )}
 
+                            {/* Print Action */}
+                            <button
+                              onClick={() => printJobVoucher(job.id)}
+                              title="Imprimir comprobante"
+                              className="p-2 hover:bg-indigo-50 text-indigo-600/60 hover:text-indigo-600 rounded-lg transition-all"
+                            >
+                              <span className="material-symbols-outlined text-lg">print</span>
+                            </button>
+
                             {/* Edit Action */}
                             <button
                               onClick={() => {
@@ -561,8 +588,8 @@ const KanbanPage: React.FC = () => {
                               <span className="material-symbols-outlined text-lg">edit</span>
                             </button>
 
-                            {/* Billing Action */}
-                            {currentStatus === 'TERMINADO' && (
+                            {/* Billing Action - Hidden for now */}
+                            {false && currentStatus === 'TERMINADO' && (
                               <button
                                 onClick={() => {
                                   setSelectedJob(job);
