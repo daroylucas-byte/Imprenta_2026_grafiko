@@ -42,7 +42,6 @@ const DashboardPage: React.FC = () => {
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [topProducts, setTopProducts] = useState<{name: string, qty: number}[]>([]);
   const [debtors, setDebtors] = useState<{name: string, balance: number}[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
@@ -120,7 +119,6 @@ const DashboardPage: React.FC = () => {
   }, [monthlyData]);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
     try {
       const now = new Date();
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -236,7 +234,7 @@ const DashboardPage: React.FC = () => {
     } catch (err: any) {
       toast.error('Error al cargar datos del dashboard: ' + err.message);
     } finally {
-      setLoading(false);
+      // Done
     }
   }, []);
 
