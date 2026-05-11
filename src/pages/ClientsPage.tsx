@@ -30,43 +30,14 @@ const ClientsPage: React.FC = () => {
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Fetch basic client data
-      const { data: clientsData, error: clientError } = await supabase
-        .from('t_clientes')
+      // Fetch consolidated balances directly from the view
+      const { data, error } = await supabase
+        .from('v_saldo_clientes')
         .select('*')
         .order('razon_social', { ascending: true });
 
-      if (clientError) throw clientError;
-
-      // 2. Fetch totals for balance calculation
-      // For performance, we fetch only columns needed
-      const [{ data: voucherTotals }, { data: receiptTotals }, { data: paymentTotals }] = await Promise.all([
-        supabase.from('t_comprobantes').select('cliente_id, total'),
-        supabase.from('t_recibos').select('cliente_id, total'),
-        supabase.from('t_comprobante_cobros').select('importe, t_comprobantes(cliente_id)')
-      ]);
-
-      // Calculate balance per client
-      const clientsWithSaldo = (clientsData || []).map(client => {
-        const totalDebe = (voucherTotals || [])
-          .filter(v => v.cliente_id === client.id)
-          .reduce((acc, curr) => acc + Number(curr.total), 0);
-
-        const totalHaberReceipts = (receiptTotals || [])
-          .filter(r => r.cliente_id === client.id)
-          .reduce((acc, curr) => acc + Number(curr.total), 0);
-        
-        const totalHaberPayments = (paymentTotals || [])
-          .filter((p: any) => p.t_comprobantes?.cliente_id === client.id)
-          .reduce((acc, curr) => acc + Number(curr.importe), 0);
-
-        return {
-          ...client,
-          saldo: totalDebe - (totalHaberReceipts + totalHaberPayments)
-        };
-      });
-
-      setClients(clientsWithSaldo);
+      if (error) throw error;
+      setClients(data || []);
     } catch (error: any) {
       toast.error('Error al cargar clientes: ' + error.message);
     } finally {
@@ -188,9 +159,14 @@ const ClientsPage: React.FC = () => {
                        </div>
                     </td>
                     <td className="px-6 py-5">
-                       <p className={`text-sm font-black ${client.saldo && client.saldo > 0 ? 'text-error' : client.saldo && client.saldo < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
-                         $ {Number(client.saldo || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                       <p className={`text-sm font-black ${Number(client.saldo_total || 0) > 0 ? 'text-error' : Number(client.saldo_total || 0) < 0 ? 'text-emerald-600' : 'text-on-surface'}`}>
+                         $ {Number(client.saldo_total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                        </p>
+                       {Number((client as any).saldo_disponible_cc || 0) > 0 && (
+                         <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-tighter">
+                           Crédito CC: $ {Number((client as any).saldo_disponible_cc).toLocaleString('es-AR')}
+                         </p>
+                       )}
                     </td>
                     <td className="px-8 py-5 text-center">
                        <div className="flex justify-center gap-2">

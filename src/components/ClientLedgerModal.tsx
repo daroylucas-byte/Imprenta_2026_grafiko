@@ -26,110 +26,213 @@ interface ClientLedgerModalProps {
 const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [ledger, setLedger] = useState<LedgerItem[]>([]);
+  const [pendingJobs, setPendingJobs] = useState<any[]>([]);
   const [fullClient, setFullClient] = useState<any>(null);
-  const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo: 0 });
+  const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo: 0, disponible_cc: 0 });
+  const [activeTab, setActiveTab] = useState<'historial' | 'deudas'>('historial');
 
   const fetchLedgerData = useCallback(async () => {
     setLoading(true);
     try {
-      // 0. Fetch Full Client Details
-      const { data: clientData } = await supabase
-        .from('t_clientes')
+      // 0. Fetch Consolidated Client Balance
+      const { data: clientFinData } = await supabase
+        .from('v_saldo_clientes')
         .select('*')
         .eq('id', client.id)
         .single();
-      setFullClient(clientData);
+      setFullClient(clientFinData);
 
-      // 1. Fetch Vouchers (Debe)
-      const { data: vouchers, error: vError } = await supabase
-        .from('t_comprobantes')
+      // 1. Fetch Pending Jobs for FIFO
+      const { data: pJobs } = await supabase
+        .from('v_saldo_trabajos')
         .select('*')
-        .eq('cliente_id', client.id);
-      
-      if (vError) throw vError;
+        .eq('cliente_id', client.id)
+        .gt('saldo_pendiente', 0)
+        .order('fecha_aprobacion', { ascending: true });
+      setPendingJobs(pJobs || []);
 
-      // 2. Fetch Receipts (Haber)
-      const { data: receipts, error: rError } = await supabase
-        .from('t_recibos')
-        .select('*')
-        .eq('cliente_id', client.id);
-      
-      if (rError) throw rError;
+      // 2. Fetch History Items
+      // We'll construct a ledger from Receipts, Applications, and Direct Payments
+      const [{ data: receipts }, { data: directPayments }, { data: applications }] = await Promise.all([
+        supabase.from('t_recibos').select('*').eq('cliente_id', client.id),
+        supabase.from('t_pagos_trabajo').select('*, t_trabajos(descripcion)').eq('cliente_id', client.id),
+        supabase.from('t_recibo_trabajos').select('*, t_trabajos(descripcion), t_recibos(numero)').eq('cliente_id', client.id)
+      ]);
 
-      // 3. Fetch specific voucher payments (including seña)
-      const { data: payments, error: pError } = await supabase
-        .from('t_comprobante_cobros')
-        .select('*, t_comprobantes!inner(cliente_id)')
-        .eq('t_comprobantes.cliente_id', client.id);
-      
-      if (pError) throw pError;
-
-      // Combine and Transform
       let items: any[] = [];
 
-      // Add Vouchers
+      // Add Receipts (Haber)
+      receipts?.forEach(r => {
+        items.push({
+          id: r.id,
+          fecha: r.fecha,
+          tipo: 'RECIBO CC',
+          numero: r.numero,
+          descripcion: r.observaciones || 'Entrega a cuenta corriente',
+          debe: 0,
+          haber: Number(r.total)
+        });
+      });
+
+      // Add Direct Payments (Haber)
+      directPayments?.forEach(p => {
+        items.push({
+          id: p.id,
+          fecha: p.fecha,
+          tipo: 'PAGO DIR',
+          numero: '---',
+          descripcion: `Pago directo a ${p.t_trabajos?.descripcion || 'Trabajo'}`,
+          debe: 0,
+          haber: Number(p.importe)
+        });
+      });
+
+      // Add Applications (Informative)
+      applications?.forEach(a => {
+        items.push({
+          id: a.id,
+          fecha: a.created_at,
+          tipo: 'APLICACIÓN',
+          numero: `R:${a.t_recibos?.numero || '---'}`,
+          descripcion: `Aplicado a ${a.t_trabajos?.descripcion || 'Trabajo'}`,
+          debe: 0,
+          haber: 0, // Balance neutral as it's an internal movement
+          is_application: true,
+          amount: a.importe
+        });
+      });
+
+      // Fetch Vouchers if any (Debe)
+      const { data: vouchers } = await supabase.from('t_comprobantes').select('*').eq('cliente_id', client.id);
       vouchers?.forEach(v => {
         items.push({
           id: v.id,
           fecha: v.fecha,
           tipo: v.tipo,
           numero: v.numero,
-          descripcion: v.observaciones || 'Voucher emitido',
+          descripcion: v.observaciones || 'Factura / Nota de Débito',
           debe: Number(v.total),
           haber: 0
         });
       });
 
-      // Add Receipts
-      receipts?.forEach(r => {
+      // Add Jobs as Debt (Debe) - For the ledger, a job generates debt on approval
+      const { data: approvedJobs } = await supabase.from('t_trabajos').select('*').eq('cliente_id', client.id).not('fecha_aprobacion', 'is', null);
+      approvedJobs?.forEach(j => {
         items.push({
-          id: r.id,
-          fecha: r.fecha,
-          tipo: 'RECIBO',
-          numero: r.numero,
-          descripcion: r.observaciones || 'Pago recibido',
-          debe: 0,
-          haber: Number(r.total)
+          id: j.id,
+          fecha: j.fecha_aprobacion,
+          tipo: 'TRABAJO',
+          numero: j.id.slice(0,8),
+          descripcion: j.descripcion,
+          debe: Number(j.total),
+          haber: 0
         });
       });
 
-      // Add independent payments (only if they aren't already represented in receipts - but in this schema they seem separate)
-      // Actually seña and payments tied to job billing flow are here.
-      payments?.forEach(p => {
-        items.push({
-          id: p.id,
-          fecha: p.fecha || p.created_at || new Date().toISOString(), // Fallback
-          tipo: 'PAGO-EXT',
-          numero: '---',
-          descripcion: p.observaciones || 'Pago parcial / Seña',
-          debe: 0,
-          haber: Number(p.importe)
-        });
-      });
-
-      // Sort by date
+      // Sort and calculate
       items.sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
 
-      // Calculate running balance and totals
       let currentSaldo = 0;
       let totalDebe = 0;
       let totalHaber = 0;
 
       const finalLedger: LedgerItem[] = items.map(item => {
-        currentSaldo += (item.debe - item.haber);
-        totalDebe += item.debe;
-        totalHaber += item.haber;
+        if (!item.is_application) {
+          currentSaldo += (item.debe - item.haber);
+          totalDebe += item.debe;
+          totalHaber += item.haber;
+        }
         return { ...item, saldo: currentSaldo };
       });
 
-      setLedger(finalLedger.reverse()); // Show newest first
-      setTotals({ debe: totalDebe, haber: totalHaber, saldo: currentSaldo });
+      setLedger(finalLedger.reverse());
+      setTotals({ 
+        debe: totalDebe, 
+        haber: totalHaber, 
+        saldo: clientFinData?.saldo_total || currentSaldo,
+        disponible_cc: clientFinData?.saldo_disponible_cc || 0
+      });
+
     } catch (err: any) {
-      toast.error('Error al cargar cuenta corriente: ' + err.message);
+      toast.error('Error al cargar datos: ' + err.message);
     } finally {
       setLoading(false);
     }
   }, [client.id]);
+
+  const applyFIFOPayments = async () => {
+    if (totals.disponible_cc <= 0) {
+      toast.error('No hay saldo disponible en cuenta corriente para aplicar');
+      return;
+    }
+    if (pendingJobs.length === 0) {
+      toast.error('No hay trabajos con saldo pendiente para este cliente');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. Get all unused receipts (haber_disponible > 0)
+      const { data: receipts } = await supabase
+        .from('t_recibos')
+        .select('id, numero, total')
+        .eq('cliente_id', client.id)
+        .order('fecha', { ascending: true });
+
+      if (!receipts) return;
+
+      // Calculate used amount per receipt from applications
+      const { data: apps } = await supabase.from('t_recibo_trabajos').select('recibo_id, importe');
+      const usedByReceipt = (apps || []).reduce((acc: any, curr) => {
+        acc[curr.recibo_id] = (acc[curr.recibo_id] || 0) + Number(curr.importe);
+        return acc;
+      }, {});
+
+      let availableReceipts = receipts.map(r => ({
+        ...r,
+        disponible: Number(r.total) - (usedByReceipt[r.id] || 0)
+      })).filter(r => r.disponible > 0);
+
+      let jobsToPay = [...pendingJobs];
+      const newApplications = [];
+
+      for (const receipt of availableReceipts) {
+        let rDisp = receipt.disponible;
+        for (const job of jobsToPay) {
+          if (rDisp <= 0) break;
+          if (job.saldo_pendiente <= 0) continue;
+
+          const amountToApply = Math.min(rDisp, job.saldo_pendiente);
+          newApplications.push({
+            recibo_id: receipt.id,
+            trabajo_id: job.id,
+            cliente_id: client.id,
+            importe: amountToApply
+          });
+
+          rDisp -= amountToApply;
+          job.saldo_pendiente -= amountToApply;
+        }
+        if (newApplications.length >= 50) break; // Batch limit safety
+      }
+
+      if (newApplications.length === 0) {
+        toast('Nada nuevo que aplicar');
+        return;
+      }
+
+      const { error } = await supabase.from('t_recibo_trabajos').insert(newApplications);
+      if (error) throw error;
+
+      toast.success(`Se aplicaron ${newApplications.length} pagos correctamente (FIFO)`);
+      fetchLedgerData();
+    } catch (err: any) {
+      toast.error('Error al aplicar FIFO: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchLedgerData();
@@ -239,31 +342,58 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
         </div>
 
         {/* Totals Summary Bar */}
-        <div className="grid grid-cols-3 divide-x divide-outline-variant/10 bg-white border-b border-outline-variant/5">
+        <div className="grid grid-cols-4 divide-x divide-outline-variant/10 bg-white border-b border-outline-variant/5">
            <div className="px-10 py-6">
-              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Total Owed (Debe)</p>
-              <p className="text-xl font-black text-on-surface">${totals.debe.toLocaleString('es-AR')}</p>
+              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Deuda por Trabajos</p>
+              <p className="text-xl font-black text-on-surface">${Number(fullClient?.saldo_trabajos || 0).toLocaleString('es-AR')}</p>
+           </div>
+           <div className="px-10 py-6 bg-indigo-50/30">
+              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Disponible en CC</p>
+              <p className="text-xl font-black text-indigo-700">${Number(fullClient?.saldo_disponible_cc || 0).toLocaleString('es-AR')}</p>
            </div>
            <div className="px-10 py-6">
-              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Total Paid (Haber)</p>
-              <p className="text-xl font-black text-emerald-600">${totals.haber.toLocaleString('es-AR')}</p>
-           </div>
-           <div className="px-10 py-6 bg-slate-50/50">
-              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">State</p>
+              <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mb-1 opacity-50">Saldo Consolidado</p>
               <p className={`text-xl font-black ${totals.saldo > 0 ? 'text-error' : 'text-emerald-600'}`}>
-                {totals.saldo > 0 ? 'DEUDOR' : totals.saldo < 0 ? 'A FAVOR' : 'EQUILIBRADO'}
+                ${Math.abs(totals.saldo).toLocaleString('es-AR')}
+                <span className="text-[10px] ml-1 uppercase">{totals.saldo > 0 ? 'Deudor' : 'A Favor'}</span>
               </p>
+           </div>
+           <div className="px-8 py-6 flex items-center justify-center bg-slate-50">
+              <button 
+                onClick={applyFIFOPayments}
+                disabled={loading || totals.disponible_cc <= 0 || pendingJobs.length === 0}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-900/10 hover:bg-primary transition-all active:scale-95 disabled:opacity-30 disabled:grayscale"
+              >
+                <span className="material-symbols-outlined text-lg">auto_fix_high</span>
+                Aplicar FIFO
+              </button>
            </div>
         </div>
 
-        {/* Ledger Table */}
+        {/* Tabs */}
+        <div className="flex px-10 bg-white border-b border-outline-variant/5">
+           <button 
+             onClick={() => setActiveTab('historial')}
+             className={`px-8 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'historial' ? 'border-primary text-primary' : 'border-transparent text-outline'}`}
+           >
+             Movimientos
+           </button>
+           <button 
+             onClick={() => setActiveTab('deudas')}
+             className={`px-8 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'deudas' ? 'border-primary text-primary' : 'border-transparent text-outline'}`}
+           >
+             Trabajos Pendientes ({pendingJobs.length})
+           </button>
+        </div>
+
+        {/* Ledger Table / Pending Jobs */}
         <div className="flex-1 overflow-y-auto no-scrollbar p-10 bg-slate-50/20">
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center space-y-4">
               <div className="w-12 h-12 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
-              <p className="text-xs font-black uppercase tracking-widest text-outline">Conciliando cuentas...</p>
+              <p className="text-xs font-black uppercase tracking-widest text-outline">Procesando finanzas...</p>
             </div>
-          ) : (
+          ) : activeTab === 'historial' ? (
             <table className="w-full text-left border-separate border-spacing-y-3">
               <thead>
                 <tr>
@@ -276,14 +406,17 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
               </thead>
               <tbody>
                 {ledger.map((item, idx) => (
-                  <tr key={idx} className="group animate-in fade-in slide-in-from-right-4 duration-300" style={{ animationDelay: `${idx * 20}ms` }}>
+                  <tr key={idx} className={`group animate-in fade-in slide-in-from-right-4 duration-300 ${(item as any).is_application ? 'opacity-60 grayscale-[0.5]' : ''}`} style={{ animationDelay: `${idx * 20}ms` }}>
                     <td className="bg-white px-6 py-5 rounded-l-3xl border-y border-l border-outline-variant/10 first-letter:uppercase">
                       <p className="text-sm font-bold text-on-surface">{new Date(item.fecha).toLocaleDateString('es-AR')}</p>
                       <p className="text-[9px] text-outline font-bold uppercase tracking-tight">{item.tipo}</p>
                     </td>
                     <td className="bg-white px-6 py-5 border-y border-outline-variant/10">
-                      <p className="text-sm font-bold text-on-surface">{item.numero}</p>
+                      <p className="text-sm font-bold text-on-surface">{(item as any).is_application ? (item as any).numero : item.numero}</p>
                       <p className="text-[10px] text-on-surface-variant line-clamp-1">{item.descripcion}</p>
+                      {(item as any).is_application && (
+                         <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">Importe: ${(item as any).amount.toLocaleString('es-AR')}</span>
+                      )}
                     </td>
                     <td className="bg-white px-6 py-5 border-y border-outline-variant/10 text-right">
                        {item.debe > 0 && <span className="text-sm font-black text-on-surface">${item.debe.toLocaleString('es-AR')}</span>}
@@ -300,6 +433,37 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                 ))}
               </tbody>
             </table>
+          ) : (
+            /* Pending Jobs List */
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingJobs.map((job, idx) => (
+                <div key={job.id} className="bg-white p-6 rounded-3xl border border-outline-variant/10 shadow-sm hover:border-primary/20 transition-all group">
+                   <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <p className="text-[9px] font-black text-outline uppercase tracking-widest mb-1">Trabajo #{job.id.slice(0,8)}</p>
+                        <h4 className="text-sm font-black text-on-surface group-hover:text-primary transition-colors">{job.descripcion}</h4>
+                      </div>
+                      <span className="px-2 py-1 bg-surface-container-low text-[9px] font-black uppercase rounded text-on-surface-variant">{job.estado}</span>
+                   </div>
+                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-outline-variant/5">
+                      <div>
+                        <p className="text-[8px] font-black text-outline uppercase tracking-widest mb-0.5">Total</p>
+                        <p className="text-sm font-bold text-on-surface">${job.total.toLocaleString('es-AR')}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[8px] font-black text-error uppercase tracking-widest mb-0.5">Saldo Pendiente</p>
+                        <p className="text-sm font-black text-error">${job.saldo_pendiente.toLocaleString('es-AR')}</p>
+                      </div>
+                   </div>
+                   <div className="mt-4 flex items-center justify-between text-[9px] font-bold text-outline uppercase tracking-tighter">
+                      <span>Aprobado: {job.fecha_aprobacion ? new Date(job.fecha_aprobacion).toLocaleDateString('es-AR') : '---'}</span>
+                      <div className="flex gap-1">
+                        {job.total_cobrado_directo > 0 && <span className="text-emerald-600">Cobrado: ${job.total_cobrado_directo.toLocaleString('es-AR')}</span>}
+                      </div>
+                   </div>
+                </div>
+              ))}
+            </div>
           )}
           
           {!loading && ledger.length === 0 && (

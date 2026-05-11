@@ -26,7 +26,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
       subtotal: initialSubtotal,
       iva: initialIva,
       total: baseTotal,
-      estado: job?.estado || 'pendiente',
+      estado: 'pendiente',
       observaciones: job ? `Facturación de trabajo: ${job.descripcion}` : '',
     }
   });
@@ -34,6 +34,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [jobDetails, setJobDetails] = useState<any>(null);
+  const [jobBalance, setJobBalance] = useState<any>(null);
   const [clientName, setClientName] = useState('');
   
   const subtotal = watch('subtotal');
@@ -67,6 +68,15 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
           if (error) throw error;
           setJobDetails(data);
           setClientName(data.t_clientes?.razon_social || '');
+
+          // Fetch financial balance for PDF totals
+          const { data: balance } = await supabase
+            .from('v_saldo_trabajos')
+            .select('*')
+            .eq('id', job.id)
+            .single();
+          setJobBalance(balance);
+
         } catch (err: any) {
           console.error('Error fetching full job details:', err);
         }
@@ -200,10 +210,11 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    if (jobDetails.sena > 0) {
-      doc.text(`Seña entregada: $${jobDetails.sena.toLocaleString('es-AR')}`, 140, finalY + 25);
+    const totalPagado = Number(jobBalance?.total_pagado_directo || 0) + Number(jobBalance?.total_aplicado_cc || 0);
+    if (totalPagado > 0) {
+      doc.text(`Total Pagado: $${totalPagado.toLocaleString('es-AR')}`, 140, finalY + 25);
       doc.setTextColor(30, 41, 59);
-      doc.text(`SALDO A PAGAR: $${(invoiceData.total - jobDetails.sena).toLocaleString('es-AR')}`, 140, finalY + 31);
+      doc.text(`SALDO PENDIENTE: $${Number(jobBalance?.saldo_pendiente || 0).toLocaleString('es-AR')}`, 140, finalY + 31);
     }
 
     if (invoiceData.observaciones) {

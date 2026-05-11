@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -27,6 +27,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
   // Local state for items
   const [items, setItems] = useState<any[]>([]);
+  const [saldoData, setSaldoData] = useState<any>(null);
+  const [pagos, setPagos] = useState<any[]>([]);
+  const [isRegisteringPayment, setIsRegisteringPayment] = useState(false);
+  
   const [currentItem, setCurrentItem] = useState<any>({
     producto_id: '',
     cantidad: 1,
@@ -73,44 +77,65 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   }, []);
 
   // Fetch job data if editing
-  useEffect(() => {
-    if (jobId) {
-      const fetchJob = async () => {
-        setFetching(true);
-        try {
-          const { data, error } = await supabase
-            .from('t_trabajos')
-            .select('*')
-            .eq('id', jobId)
-            .single();
+  const fetchJobDetails = useCallback(async () => {
+    if (!jobId) return;
+    setFetching(true);
+    try {
+      // Fetch main job record
+      const { data, error } = await supabase
+        .from('t_trabajos')
+        .select('*')
+        .eq('id', jobId)
+        .single();
 
-          if (error) throw error;
-          if (data) {
-            reset({
-              cliente_id: data.cliente_id,
-              descripcion: data.descripcion,
-              cantidad: data.cantidad,
-              fecha_entrega: data.fecha_entrega,
-              soporte_id: data.soporte_id || '',
-              sistema_impresion_id: data.sistema_impresion_id || '',
-              tamanio_papel_id: data.tamanio_papel_id || '',
-              peliculado_id: data.peliculado_id || '',
-              acabado_id: data.acabado_id || '',
-              terminacion_id: data.terminacion_id || '',
-              total: data.total,
-              sena: data.sena,
-              tipo_entrega_id: data.tipo_entrega_id || '',
-            });
-          }
-        } catch (err: any) {
-          toast.error('Error al cargar el trabajo: ' + err.message);
-        } finally {
-          setFetching(false);
-        }
-      };
-      fetchJob();
+      if (error) throw error;
+      if (data) {
+        reset({
+          cliente_id: data.cliente_id,
+          descripcion: data.descripcion,
+          cantidad: data.cantidad,
+          fecha_entrega: data.fecha_entrega,
+          soporte_id: data.soporte_id || '',
+          sistema_impresion_id: data.sistema_impresion_id || '',
+          tamanio_papel_id: data.tamanio_papel_id || '',
+          peliculado_id: data.peliculado_id || '',
+          acabado_id: data.acabado_id || '',
+          terminacion_id: data.terminacion_id || '',
+          total: data.total,
+          sena: data.sena,
+          tipo_entrega_id: data.tipo_entrega_id || '',
+          estado: data.estado,
+          facturado: data.facturado || false,
+          fecha_aprobacion: data.fecha_aprobacion || null,
+        });
+      }
+
+      // Fetch financial balance from view
+      const { data: sData } = await supabase
+        .from('v_saldo_trabajos')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+      setSaldoData(sData);
+
+      // Fetch direct payments
+      const { data: pData } = await supabase
+        .from('t_pagos_trabajo')
+        .select('*')
+        .eq('trabajo_id', jobId)
+        .order('fecha', { ascending: false });
+      setPagos(pData || []);
+
+    } catch (err: any) {
+      toast.error('Error al cargar el trabajo: ' + err.message);
+    } finally {
+      setFetching(false);
     }
   }, [jobId, reset]);
+
+  useEffect(() => {
+    fetchJobDetails();
+  }, [fetchJobDetails]);
 
   // Handle client selection to default price type
   const handleClientChange = (clientId: string) => {
@@ -192,7 +217,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   };
 
   const onSubmit = async (data: any) => {
-    if (items.length === 0) {
+    if (items.length === 0 && !jobId) {
       toast.error('Debe agregar al menos un producto al trabajo');
       return;
     }
@@ -205,14 +230,15 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         return acc;
       }, { total, sena });
 
+      // Handle business rules for approval
       if (jobId) {
-        // Track production entry date if status changes to 'EN PRODUCCIÓN'
-        if (data.estado === 'EN PRODUCCIÓN') {
-           // We'll check if it was already in production by fetching it or just setting it now if it's null
-           // For simplicity in this update:
-           sanitizedData.fecha_pase_produccion = new Date().toISOString();
+        const { data: currentJob } = await supabase.from('t_trabajos').select('estado').eq('id', jobId).single();
+        if (currentJob?.estado === 'PRESUPUESTADO' && data.estado === 'APROBADO') {
+           sanitizedData.fecha_aprobacion = new Date().toISOString().split('T')[0];
         }
-        
+      }
+
+      if (jobId) {
         const { error } = await supabase.from('t_trabajos').update(sanitizedData).eq('id', jobId);
         if (error) throw error;
       } else {
@@ -222,7 +248,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           .insert([{
             ...sanitizedData,
             estado: data.estado || 'PRESUPUESTADO',
-            fecha_pase_produccion: data.estado === 'EN PRODUCCIÓN' ? new Date().toISOString() : null,
+            fecha_aprobacion: data.estado === 'APROBADO' ? new Date().toISOString().split('T')[0] : null,
             created_at: new Date().toISOString(),
           }])
           .select()
@@ -230,21 +256,36 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
         if (jobErr) throw jobErr;
 
-        // Insert Items
-        const itemRows = items.map(item => ({
-          trabajo_id: job.id,
-          producto_id: item.producto_id,
-          cantidad: item.cantidad,
-          tipo_precio: item.tipo_precio,
-          precio_unitario: item.precio_unitario,
-          subtotal: item.subtotal,
-          numeracion_desde: item.numeracion_desde || null,
-          numeracion_hasta: item.numeracion_hasta || null,
-          fecha_muestra: item.fecha_muestra || null
-        }));
+        // Automatically register initial payment if sena > 0
+        if (sena > 0) {
+          await supabase.from('t_pagos_trabajo').insert([{
+            trabajo_id: job.id,
+            cliente_id: job.cliente_id,
+            importe: sena,
+            tipo: 'seña',
+            tipo_pago: 'EFECTIVO',
+            fecha: new Date().toISOString().split('T')[0],
+            observaciones: 'Seña inicial al crear trabajo'
+          }]);
+        }
 
-        const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
-        if (itemsErr) throw itemsErr;
+        // Insert Items if any added in modal
+        if (items.length > 0) {
+          const itemRows = items.map(item => ({
+            trabajo_id: job.id,
+            producto_id: item.producto_id,
+            cantidad: item.cantidad,
+            tipo_precio: item.tipo_precio,
+            precio_unitario: item.precio_unitario,
+            subtotal: item.subtotal,
+            numeracion_desde: item.numeracion_desde || null,
+            numeracion_hasta: item.numeracion_hasta || null,
+            fecha_muestra: item.fecha_muestra || null
+          }));
+
+          const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
+          if (itemsErr) throw itemsErr;
+        }
       }
 
       toast.success(jobId ? 'Trabajo actualizado' : 'Trabajo creado con éxito');
@@ -252,6 +293,28 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       onClose();
     } catch (err: any) {
       toast.error('Error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const registerDirectPayment = async (paymentData: any) => {
+    if (!jobId) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('t_pagos_trabajo').insert([{
+        trabajo_id: jobId,
+        cliente_id: watch('cliente_id'),
+        ...paymentData,
+        fecha: paymentData.fecha || new Date().toISOString().split('T')[0]
+      }]);
+      
+      if (error) throw error;
+      toast.success('Pago registrado');
+      setIsRegisteringPayment(false);
+      fetchJobDetails();
+    } catch (err: any) {
+      toast.error('Error al registrar pago: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -297,10 +360,27 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     {...register('estado', { required: true })}
                     className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
                   >
-                    <option value="PRESUPUESTADO">PRESUPUESTADO (Cotización)</option>
-                    <option value="EN PRODUCCION">EN PRODUCCIÓN (Aprobado)</option>
-                    <option value="DETENIDO">DETENIDO</option>
+                    <option value="PRESUPUESTADO">PRESUPUESTO</option>
+                    <option value="APROBADO">APROBADO</option>
+                    <option value="EN PRODUCCIÓN">EN PRODUCCIÓN</option>
+                    <option value="TERMINADO">TERMINADO</option>
+                    <option value="ENTREGADO">ENTREGADO</option>
+                    <option value="CANCELADO">CANCELADO</option>
                   </select>
+                </div>
+                <div className="flex items-center gap-4 px-4">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      id="facturado" 
+                      {...register('facturado')}
+                      className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20"
+                    />
+                    <label htmlFor="facturado" className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest cursor-pointer">Facturado</label>
+                  </div>
+                  {watch('facturado') && (
+                    <span className="material-symbols-outlined text-emerald-600 text-xl animate-in zoom-in duration-300">verified</span>
+                  )}
                 </div>
                 {watch('estado') === 'PRESUPUESTADO' ? (
                   <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -492,8 +572,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             <p className="text-[8px] uppercase text-outline">{item.tipo_precio}</p>
                           </td>
                           <td className="px-4 py-4 text-center">{item.cantidad}</td>
-                          <td className="px-4 py-4 text-right">$ {item.precio_unitario.toLocaleString('es-AR')}</td>
-                          <td className="px-4 py-4 text-right font-black">$ {item.subtotal.toLocaleString('es-AR')}</td>
+                          <td className="px-4 py-4 text-right">$ {(Number(item.precio_unitario) || 0).toLocaleString('es-AR')}</td>
+                          <td className="px-4 py-4 text-right font-black">$ {(Number(item.subtotal) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4">
                             <div className="flex justify-center gap-1">
                                {item.numeracion_desde && <span title="Num" className="w-2 h-2 rounded-full bg-amber-400"></span>}
@@ -578,30 +658,173 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
             <hr className="border-outline-variant/10" />
 
-            {/* Section: Financials */}
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 text-primary">
-                <span className="material-symbols-outlined font-bold">payments</span>
-                <h4 className="text-sm font-black uppercase tracking-[0.2em]">Totales y Pagos</h4>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/10 flex flex-col items-center justify-center space-y-2">
-                   <p className="text-[10px] font-black text-primary uppercase tracking-widest">Total del Trabajo</p>
-                   <p className="text-4xl font-black text-on-surface">$ {watch('total')?.toLocaleString('es-AR') || '0'}</p>
-                   <input type="hidden" {...register('total')} />
+            {/* Section: Financials & Payments */}
+            {jobId && (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                <hr className="border-outline-variant/10" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-primary">
+                    <span className="material-symbols-outlined font-bold">account_balance_wallet</span>
+                    <h4 className="text-sm font-black uppercase tracking-[0.2em]">Estado Financiero del Trabajo</h4>
+                  </div>
+                  <div className="flex gap-2">
+                     {saldoData?.saldo_pendiente > 0 && (
+                       <span className="px-3 py-1 bg-error/10 text-error rounded-full text-[10px] font-black uppercase tracking-tighter">Deuda Pendiente</span>
+                     )}
+                     {saldoData?.saldo_pendiente <= 0 && saldoData?.total > 0 && (
+                       <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter">Saldado</span>
+                     )}
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seña Recibida (AR$)</label>
-                  <input 
-                    type="number"
-                    step="0.01"
-                    {...register('sena', { valueAsNumber: true })}
-                    placeholder="0.00"
-                    className="w-full h-full bg-surface-container-low border-none rounded-[2rem] py-3 px-8 text-2xl font-black focus:ring-2 focus:ring-primary/30"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="p-5 bg-surface-container-low rounded-3xl border border-outline-variant/5">
+                    <p className="text-[9px] font-black text-outline uppercase tracking-widest mb-1">Presupuesto Total</p>
+                    <p className="text-xl font-black text-on-surface">$ {(Number(saldoData?.total) || 0).toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className="p-5 bg-emerald-50/50 rounded-3xl border border-emerald-100/50">
+                    <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Pagos Directos</p>
+                    <p className="text-xl font-black text-emerald-700">$ {(Number(saldoData?.total_pagado_directo) || 0).toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100/50">
+                    <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-1">Aplicado de CC</p>
+                    <p className="text-xl font-black text-indigo-700">$ {(Number(saldoData?.total_aplicado_cc) || 0).toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className={`p-5 rounded-3xl border shadow-sm ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'bg-error/5 border-error/20' : 'bg-slate-50 border-outline-variant/10'}`}>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'text-error' : 'text-outline'}`}>Saldo Restante</p>
+                    <p className={`text-xl font-black ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'text-error' : 'text-on-surface'}`}>$ {(Number(saldoData?.saldo_pendiente) || 0).toLocaleString('es-AR')}</p>
+                  </div>
+                </div>
+
+                {/* Payments History List */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Historial de Pagos Directos / Señas</h5>
+                    <button 
+                      type="button"
+                      onClick={() => setIsRegisteringPayment(!isRegisteringPayment)}
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-900 text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-primary transition-all active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-sm">{isRegisteringPayment ? 'close' : 'add'}</span>
+                      {isRegisteringPayment ? 'Cancelar' : 'Registrar Pago'}
+                    </button>
+                  </div>
+
+                  {isRegisteringPayment && (
+                    <div className="bg-surface-container-lowest p-6 rounded-[2rem] border border-primary/20 shadow-lg shadow-primary/5 animate-in slide-in-from-top-4 duration-300">
+                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Importe ($)</label>
+                            <input 
+                              id="payment_amount" type="number" step="0.01" 
+                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-black text-primary focus:ring-2 focus:ring-primary/20"
+                              placeholder="0.00"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Tipo</label>
+                            <select id="payment_type" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
+                              <option value="seña">SEÑA (Anticipo)</option>
+                              <option value="pago">PAGO PARCIAL</option>
+                              <option value="pago">PAGO TOTAL</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio</label>
+                            <select id="payment_method" className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold appearance-none cursor-pointer">
+                              <option value="EFECTIVO">EFECTIVO</option>
+                              <option value="TRANSFERENCIA">TRANSFERENCIA</option>
+                              <option value="CHEQUE">CHEQUE</option>
+                              <option value="MERCADO PAGO">MERCADO PAGO</option>
+                              <option value="OTRO">OTRO</option>
+                            </select>
+                          </div>
+                          <div className="md:col-span-2 space-y-1">
+                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Observaciones</label>
+                            <input 
+                              id="payment_obs"
+                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold"
+                              placeholder="Nota interna..."
+                            />
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const amount = (document.getElementById('payment_amount') as HTMLInputElement).value;
+                              const type = (document.getElementById('payment_type') as HTMLSelectElement).value;
+                              const method = (document.getElementById('payment_method') as HTMLSelectElement).value;
+                              const obs = (document.getElementById('payment_obs') as HTMLInputElement).value;
+                              if (!amount || Number(amount) <= 0) return toast.error('Monto inválido');
+                              registerDirectPayment({ importe: Number(amount), tipo: type, tipo_pago: method, observaciones: obs });
+                            }}
+                            className="w-full bg-emerald-600 text-white py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-md shadow-emerald-500/20"
+                          >
+                            Confirmar Pago
+                          </button>
+                       </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-hidden rounded-[2rem] border border-outline-variant/10">
+                    <table className="w-full text-left bg-surface-container-low/20">
+                      <thead className="bg-surface-container-low text-[9px] font-black uppercase text-on-surface-variant tracking-widest">
+                        <tr>
+                          <th className="px-6 py-3">Fecha</th>
+                          <th className="px-4 py-3">Tipo</th>
+                          <th className="px-4 py-3">Medio</th>
+                          <th className="px-6 py-3 text-right">Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-outline-variant/5">
+                        {pagos.map((p, idx) => (
+                          <tr key={idx} className="text-[11px] font-bold text-on-surface">
+                            <td className="px-6 py-4">{new Date(p.fecha).toLocaleDateString('es-AR')}</td>
+                            <td className="px-4 py-4">
+                               <span className={`px-2 py-0.5 rounded-md uppercase tracking-tighter text-[9px] ${p.tipo === 'seña' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                 {p.tipo}
+                               </span>
+                            </td>
+                            <td className="px-4 py-4 uppercase text-outline text-[9px]">{p.tipo_pago}</td>
+                            <td className="px-6 py-4 text-right font-black text-on-surface">$ {(Number(p.importe) || 0).toLocaleString('es-AR')}</td>
+                          </tr>
+                        ))}
+                        {pagos.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-6 py-8 text-center text-outline/30 italic">No hay pagos directos registrados</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {!jobId && (
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 text-primary">
+                  <span className="material-symbols-outlined font-bold">payments</span>
+                  <h4 className="text-sm font-black uppercase tracking-[0.2em]">Totales Iniciales</h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/10 flex flex-col items-center justify-center space-y-2">
+                    <p className="text-[10px] font-black text-primary uppercase tracking-widest">Total del Trabajo</p>
+                    <p className="text-4xl font-black text-on-surface">$ {(Number(watch('total')) || 0).toLocaleString('es-AR')}</p>
+                    <input type="hidden" {...register('total')} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seña Inicial Sugerida (AR$)</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      {...register('sena', { valueAsNumber: true })}
+                      placeholder="0.00"
+                      className="w-full h-full bg-surface-container-low border-none rounded-[2rem] py-3 px-8 text-2xl font-black focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </form>
         )}
 
