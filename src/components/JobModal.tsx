@@ -45,38 +45,35 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     fecha_muestra: ''
   });
 
-  useEffect(() => {
-    const fetchLookups = async () => {
-      try {
-        const [
-          { data: c }, { data: pList }, { data: s }, { data: si }, { data: t }, 
-          { data: p }, { data: a }, { data: tm }, { data: e }
-        ] = await Promise.all([
-          supabase.from('t_clientes').select('id, razon_social, es_mayorista').order('razon_social'),
-          supabase.from('t_productos').select('*').order('nombre'),
-          supabase.from('t_conf_soportes').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_sistemas_impresion').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_tamanios_papel').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_peliculados').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_acabados').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_terminaciones').select('id, nombre').order('nombre'),
-          supabase.from('t_conf_tipos_entrega').select('id, nombre').order('nombre'),
-        ]);
+  const fetchLookups = useCallback(async () => {
+    try {
+      const [
+        { data: c }, { data: pList }, { data: s }, { data: si }, { data: t }, 
+        { data: p }, { data: a }, { data: tm }, { data: e }
+      ] = await Promise.all([
+        supabase.from('t_clientes').select('id, razon_social, nombre, es_mayorista').order('razon_social'),
+        supabase.from('t_productos').select('*').order('nombre'),
+        supabase.from('t_conf_soportes').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_sistemas_impresion').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_tamanios_papel').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_peliculados').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_acabados').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_terminaciones').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_tipos_entrega').select('id, nombre').order('nombre'),
+      ]);
 
-        setClientes(c || []);
-        setProductos(pList || []);
-        setSoportes(s || []);
-        setSistemas(si || []);
-        setTamanios(t || []);
-        setPeliculados(p || []);
-        setAcabados(a || []);
-        setTerminaciones(tm || []);
-        setEntregas(e || []);
-      } catch (err) {
-        toast.error('Error al cargar datos de configuración');
-      }
-    };
-    fetchLookups();
+      setClientes(c || []);
+      setProductos(pList || []);
+      setSoportes(s || []);
+      setSistemas(si || []);
+      setTamanios(t || []);
+      setPeliculados(p || []);
+      setAcabados(a || []);
+      setTerminaciones(tm || []);
+      setEntregas(e || []);
+    } catch (err) {
+      toast.error('Error al cargar datos de configuración');
+    }
   }, []);
 
   // Fetch job data if editing
@@ -110,6 +107,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           estado: data.estado,
           facturado: data.facturado || false,
           fecha_aprobacion: data.fecha_aprobacion || null,
+          fecha_vencimiento_presupuesto: data.fecha_vencimiento_presupuesto || '',
         });
       }
 
@@ -160,8 +158,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   }, [jobId, reset]);
 
   useEffect(() => {
-    fetchJobDetails();
-  }, [fetchJobDetails]);
+    const loadAll = async () => {
+      await fetchLookups();
+      if (jobId) {
+        await fetchJobDetails();
+      }
+    };
+    loadAll();
+  }, [jobId, fetchLookups, fetchJobDetails]);
 
   // Handle client selection to default price type
   const handleClientChange = (clientId: string) => {
@@ -265,8 +269,28 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       }
 
       if (jobId) {
+        // Update Job
         const { error } = await supabase.from('t_trabajos').update(sanitizedData).eq('id', jobId);
         if (error) throw error;
+
+        // Update Items: Delete old ones and insert current ones
+        await supabase.from('t_trabajo_productos').delete().eq('trabajo_id', jobId);
+        
+        if (items.length > 0) {
+          const itemRows = items.map(item => ({
+            trabajo_id: jobId,
+            producto_id: item.producto_id,
+            cantidad: item.cantidad,
+            tipo_precio: item.tipo_precio,
+            precio_unitario: item.precio_unitario,
+            subtotal: item.subtotal,
+            numeracion_desde: item.numeracion_desde || null,
+            numeracion_hasta: item.numeracion_hasta || null,
+            fecha_muestra: item.fecha_muestra || null
+          }));
+          const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
+          if (itemsErr) throw itemsErr;
+        }
       } else {
         // Create Job then Items
         const { data: job, error: jobErr } = await supabase
@@ -685,9 +709,18 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                           <td className="px-4 py-4 text-right">$ {(Number(item.precio_unitario) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4 text-right font-black">$ {(Number(item.subtotal) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4">
-                            <div className="flex justify-center gap-1">
-                               {item.numeracion_desde && <span title="Num" className="w-2 h-2 rounded-full bg-amber-400"></span>}
-                               {item.fecha_muestra && <span title="Muestra" className="w-2 h-2 rounded-full bg-blue-400"></span>}
+                            <div className="flex flex-col gap-1 items-center justify-center">
+                               {item.numeracion_desde && (
+                                 <span className="flex items-center gap-1 text-[8px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                                   <span className="material-symbols-outlined text-[10px]">123</span> {item.numeracion_desde}-{item.numeracion_hasta}
+                                 </span>
+                               )}
+                               {item.fecha_muestra && (
+                                 <span className="flex items-center gap-1 text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                                   <span className="material-symbols-outlined text-[10px]">calendar_today</span> {new Date(item.fecha_muestra).toLocaleDateString('es-AR')}
+                                 </span>
+                               )}
+                               {!item.numeracion_desde && !item.fecha_muestra && <span className="text-outline/20">---</span>}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
