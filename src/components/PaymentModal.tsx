@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
+import { useAuthStore } from '../store/authStore';
 
 interface PaymentModalProps {
   client: {
@@ -14,6 +15,7 @@ interface PaymentModalProps {
 
 const PaymentModal: React.FC<PaymentModalProps> = ({ client, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
+  const { user } = useAuthStore();
   
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
@@ -25,37 +27,44 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ client, onClose, onSuccess 
     }
   });
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (formData: any) => {
     setLoading(true);
     try {
-      // 1. Create the Recibo (Main entry)
-      const { data: recibo, error: reciboError } = await supabase
-        .from('t_recibos')
-        .insert([{
-          cliente_id: data.cliente_id,
-          fecha: data.fecha,
-          total: Number(data.monto),
-          observaciones: data.observaciones,
-          numero: `REC-${Date.now().toString().slice(-6)}` // Simple auto-number
-        }])
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('registrar_cobro_con_fifo', {
+        p_cliente_id: formData.cliente_id,
+        p_monto: Number(formData.monto),
+        p_metodo: formData.metodo,
+        p_fecha: formData.fecha,
+        p_observaciones: formData.observaciones || null,
+        p_usuario_id: user?.id || null,
+      });
 
-      if (reciboError) throw reciboError;
+      if (error) throw error;
 
-      // 2. Create the item detail
-      const { error: itemError } = await supabase
-        .from('t_recibo_items')
-        .insert([{
-          recibo_id: recibo.id,
-          tipo: data.metodo,
-          importe: Number(data.monto),
-          observaciones: 'Pago general recibido'
-        }]);
+      const result = data && data[0];
+      if (result) {
+        const applied = Number(result.monto_aplicado_fifo || 0);
+        const unapplied = Number(result.monto_no_aplicado || 0);
+        const movId = result.movimiento_caja_id;
 
-      if (itemError) throw itemError;
+        const appliedStr = applied.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+        const unappliedStr = unapplied.toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
-      toast.success('Cobro registrado correctamente');
+        if (applied > 0 && unapplied === 0) {
+          toast.success('Cobro registrado y aplicado íntegramente a trabajos pendientes.');
+        } else if (unapplied > 0 && applied > 0) {
+          toast.success(`Cobro registrado. Se aplicaron $${appliedStr} a trabajos pendientes y $${unappliedStr} quedaron como crédito a favor.`);
+        } else if (applied === 0) {
+          toast.success('Cobro registrado como crédito a favor del cliente (sin deuda pendiente).');
+        }
+
+        if (!movId) {
+          toast('No hay caja abierta — el cobro no impactó en caja.', { icon: '⚠️', duration: 6000 });
+        }
+      } else {
+        toast.success('Cobro registrado correctamente');
+      }
+
       onSuccess();
       onClose();
     } catch (err: any) {

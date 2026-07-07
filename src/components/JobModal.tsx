@@ -254,7 +254,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
     setLoading(true);
     try {
-      const { total, sena, ...rest } = data;
+      const { total, sena, facturado, ...rest } = data;
       const sanitizedData = Object.entries(rest).reduce((acc: any, [key, value]) => {
         acc[key] = value === "" ? null : value;
         return acc;
@@ -504,17 +504,18 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 </div>
                 <div className="flex items-center gap-4 px-4">
                   <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="facturado"
-                      {...register('facturado')}
-                      className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20"
-                    />
-                    <label htmlFor="facturado" className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest cursor-pointer">Facturado</label>
+                    <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Estado Fiscal</span>
+                    {watch('facturado') ? (
+                      <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-lg">
+                        <span className="material-symbols-outlined text-sm">verified</span>
+                        Facturado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-black text-outline/50 uppercase tracking-widest bg-surface-container-low px-2 py-1 rounded-lg">
+                        Sin facturar
+                      </span>
+                    )}
                   </div>
-                  {watch('facturado') && (
-                    <span className="material-symbols-outlined text-emerald-600 text-xl animate-in zoom-in duration-300">verified</span>
-                  )}
                 </div>
                 {watch('estado') === 'PRESUPUESTADO' ? (
                   <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">

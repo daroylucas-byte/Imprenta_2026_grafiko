@@ -9,6 +9,9 @@ import ClientsPage from './pages/ClientsPage';
 import BillingPage from './pages/BillingPage';
 import ConfigDropdownPage from './pages/ConfigDropdownPage';
 import ProductsPage from './pages/ProductsPage';
+import CashRegisterPage from './pages/CashRegisterPage';
+import PromotionsPage from './pages/PromotionsPage';
+import ArcaConfigPage from './pages/ArcaConfigPage';
 import Layout from './components/Layout';
 
 function App() {
@@ -61,6 +64,21 @@ function App() {
       <Route
         path="/configuracion"
         element={user ? <Layout title="Configuración Sistema"><ConfigDropdownPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/configuracion/arca"
+        element={user ? <Layout title="Configuración ARCA/AFIP"><ArcaConfigPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/caja"
+        element={user ? <Layout title="Caja Registradora"><CashRegisterPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/promociones"
+        element={user ? <Layout title="Promociones IA"><PromotionsPage /></Layout> : <Navigate to="/login" />}
       />
 
       {/* Redirect old path */}

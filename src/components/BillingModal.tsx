@@ -36,6 +36,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
   const [jobDetails, setJobDetails] = useState<any>(null);
   const [jobBalance, setJobBalance] = useState<any>(null);
   const [clientName, setClientName] = useState('');
+  const [estadoDerivado, setEstadoDerivado] = useState<{ trabajo_id: string | null; estado_real: string } | null>(null);
   
   const subtotal = watch('subtotal');
   const iva = watch('iva');
@@ -112,6 +113,13 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
               observaciones: data.observaciones,
             });
           }
+
+          const { data: estadoData } = await supabase
+            .from('v_estado_comprobantes')
+            .select('trabajo_id, estado_real')
+            .eq('comprobante_id', existingInvoiceId)
+            .maybeSingle();
+          setEstadoDerivado(estadoData);
         } catch (err: any) {
           toast.error('Error al cargar factura existente: ' + err.message);
         } finally {
@@ -368,15 +376,24 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Estado de Pago</label>
-                <select 
-                  {...register('estado')}
-                  className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
-                >
-                  <option value="pendiente">Pendiente</option>
-                  <option value="parcial">Parcial</option>
-                  <option value="cobrado">Cobrado</option>
-                  <option value="anulado">Anulado</option>
-                </select>
+                {estadoDerivado?.trabajo_id ? (
+                  <div className="space-y-1">
+                    <div className="w-full bg-surface-container-low/50 border border-outline-variant/10 rounded-2xl py-3 px-4 text-sm font-bold text-on-surface-variant capitalize">
+                      {estadoDerivado.estado_real}
+                    </div>
+                    <p className="text-[9px] text-outline font-medium ml-1">Calculado automáticamente según los cobros del trabajo vinculado.</p>
+                  </div>
+                ) : (
+                  <select
+                    {...register('estado')}
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
+                  >
+                    <option value="pendiente">Pendiente</option>
+                    <option value="parcial">Parcial</option>
+                    <option value="cobrado">Cobrado</option>
+                    <option value="anulado">Anulado</option>
+                  </select>
+                )}
               </div>
             </div>
 

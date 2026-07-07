@@ -25,6 +25,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title = "Overview Dashboard" 
     { name: 'Facturación', icon: 'receipt_long', path: '/facturacion' },
     { name: 'Compras', icon: 'shopping_cart', path: '/compras' },
     { name: 'Caja', icon: 'account_balance_wallet', path: '/caja' },
+    { name: 'Promociones IA', icon: 'auto_awesome', path: '/promociones' },
     { name: 'Configuración', icon: 'settings', path: '/configuracion' },
   ];
 

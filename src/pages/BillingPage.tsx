@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import BillingModal from '../components/BillingModal';
@@ -19,13 +20,25 @@ interface Invoice {
   estado?: string;
 }
 
+interface EstadoComprobante {
+  comprobante_id: string;
+  estado_guardado: string;
+  trabajo_id: string | null;
+  estado_real: 'pendiente' | 'parcial' | 'cobrado' | 'anulado';
+  total_cobrado_real: number;
+  saldo_pendiente_real: number;
+}
+
 const BillingPage: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [estados, setEstados] = useState<Record<string, EstadoComprobante>>({});
+  const [facturasArcaMap, setFacturasArcaMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [facturandoId, setFacturandoId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | undefined>(undefined);
-  
+
   const [stats, setStats] = useState({
     totalMonth: 0,
     pendingTotal: 0,
@@ -34,19 +47,44 @@ const BillingPage: React.FC = () => {
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('t_comprobantes')
-        .select(`
-          *,
-          t_clientes (razon_social),
-          t_comprobante_cobros (importe)
-        `)
-        .order('fecha', { ascending: false });
+      const [
+        { data, error },
+        { data: estadoData, error: estadoError },
+        { data: facturasArcaData, error: facturasArcaError }
+      ] = await Promise.all([
+        supabase
+          .from('t_comprobantes')
+          .select(`
+            *,
+            t_clientes (razon_social),
+            t_comprobante_cobros (importe)
+          `)
+          .order('fecha', { ascending: false }),
+        supabase.from('v_estado_comprobantes').select('*'),
+        supabase
+          .from('facturas_arca')
+          .select('venta_id, cae, numero_comprobante, punto_venta, cae_vencimiento, estado')
+          .eq('estado', 'aprobada')
+      ]);
 
       if (error) throw error;
-      
+      if (estadoError) throw estadoError;
+      if (facturasArcaError) throw facturasArcaError;
+
       const invoicesData = data || [];
       setInvoices(invoicesData);
+
+      const estadoMap: Record<string, EstadoComprobante> = {};
+      (estadoData || []).forEach((e: EstadoComprobante) => {
+        estadoMap[e.comprobante_id] = e;
+      });
+      setEstados(estadoMap);
+
+      const arcaMap: Record<string, any> = {};
+      (facturasArcaData || []).forEach((f: any) => {
+        arcaMap[f.venta_id] = f;
+      });
+      setFacturasArcaMap(arcaMap);
 
       // Calculate Stats
       const now = new Date();
@@ -62,8 +100,9 @@ const BillingPage: React.FC = () => {
           monthSum += Number(inv.total);
         }
 
-        const collected = (inv.t_comprobante_cobros || []).reduce((sum: number, c: any) => sum + Number(c.importe), 0);
-        pendingSum += Math.max(0, Number(inv.total) - collected);
+        const estado = estadoMap[inv.id];
+        const pendiente = estado ? Number(estado.saldo_pendiente_real) : Number(inv.total);
+        pendingSum += Math.max(0, pendiente);
       });
 
       setStats({
@@ -83,22 +122,27 @@ const BillingPage: React.FC = () => {
   }, [fetchInvoices]);
 
   const getStatus = (inv: Invoice) => {
-    // If there's an explicit status in the DB, use it
-    if (inv.estado && inv.estado !== 'pendiente') {
-      const isPaid = inv.estado.toLowerCase() === 'cobrado';
-      return { 
-        label: inv.estado.charAt(0).toUpperCase() + inv.estado.slice(1), 
-        color: isPaid ? 'bg-emerald-500/10 text-emerald-700' : 'bg-blue-500/10 text-blue-700', 
-        isPaid 
-      };
-    }
+    const estado = estados[inv.id];
+    const estadoReal = estado?.estado_real ?? (inv.estado === 'anulado' ? 'anulado' : 'pendiente');
 
-    const total = Number(inv.total);
-    const collected = (inv.t_comprobante_cobros || []).reduce((sum, c) => sum + Number(c.importe), 0);
-    
-    if (collected >= total && total > 0) return { label: 'Cobrado', color: 'bg-emerald-500/10 text-emerald-700', isPaid: true };
-    if (collected > 0) return { label: 'Parcial', color: 'bg-blue-500/10 text-blue-700', isPaid: false };
-    return { label: 'Pendiente', color: 'bg-amber-500/10 text-amber-700', isPaid: false };
+    const labels: Record<string, string> = {
+      cobrado: 'Cobrado',
+      parcial: 'Parcial',
+      pendiente: 'Pendiente',
+      anulado: 'Anulado',
+    };
+    const colors: Record<string, string> = {
+      cobrado: 'bg-emerald-500/10 text-emerald-700',
+      parcial: 'bg-blue-500/10 text-blue-700',
+      pendiente: 'bg-amber-500/10 text-amber-700',
+      anulado: 'bg-slate-500/10 text-slate-700',
+    };
+
+    return {
+      label: labels[estadoReal],
+      color: colors[estadoReal],
+      isPaid: estadoReal === 'cobrado',
+    };
   };
 
   const handleDelete = async (id: string, number: string) => {
@@ -115,6 +159,56 @@ const BillingPage: React.FC = () => {
       fetchInvoices();
     } catch (err: any) {
       toast.error('Error al eliminar: ' + err.message);
+    }
+  };
+
+  const handleFacturarArca = async (trabajoId: string, comprobanteId: string) => {
+    setFacturandoId(comprobanteId);
+    const toastId = toast.loading('Facturando ante ARCA/AFIP, puede tardar unos segundos...');
+    try {
+      const response = await fetch('https://arca.srv1055314.hstgr.cloud/api/facturar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ventaId: trabajoId,
+          localId: 'principal',
+          supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Error al facturar ante ARCA');
+      }
+
+      toast.success(`Factura autorizada. CAE: ${result.factura.cae}`, { id: toastId });
+      fetchInvoices();
+    } catch (err: any) {
+      console.error('Error facturando ARCA:', err);
+      const isConfigError = err.message?.includes('ARCA no esta configurado para esta sucursal');
+      if (isConfigError) {
+        toast.error(
+          (t) => (
+            <div className="flex flex-col gap-2">
+              <span className="font-semibold text-xs">{err.message}</span>
+              <Link
+                to="/configuracion/arca"
+                onClick={() => toast.dismiss(t.id)}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white font-bold rounded-lg text-[9px] uppercase tracking-wider hover:bg-blue-700 transition-colors shadow-sm self-start"
+              >
+                <span className="material-symbols-outlined text-xs font-black">settings</span>
+                Configurar ARCA
+              </Link>
+            </div>
+          ),
+          { id: toastId, duration: 10000 }
+        );
+      } else {
+        toast.error('Error al facturar: ' + err.message, { id: toastId, duration: 8000 });
+      }
+    } finally {
+      setFacturandoId(null);
     }
   };
 
@@ -185,13 +279,14 @@ const BillingPage: React.FC = () => {
                 <th className="px-6 py-5 text-[10px] text-on-surface-variant uppercase tracking-widest">Cliente</th>
                 <th className="px-6 py-5 text-[10px] text-on-surface-variant uppercase tracking-widest text-right">Total (AR$)</th>
                 <th className="px-6 py-5 text-[10px] text-on-surface-variant uppercase tracking-widest">Estado Pago</th>
+                <th className="px-6 py-5 text-[10px] text-on-surface-variant uppercase tracking-widest text-center">ARCA / AFIP</th>
                 <th className="px-8 py-5 text-[10px] text-on-surface-variant uppercase tracking-widest text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/5">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-8 py-20 text-center">
+                  <td colSpan={8} className="px-8 py-20 text-center">
                     <div className="flex flex-col items-center justify-center space-y-4">
                       <div className="w-10 h-10 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/50">Consultando Comprobantes...</p>
@@ -200,6 +295,11 @@ const BillingPage: React.FC = () => {
                 </tr>
               ) : filteredInvoices.map((inv) => {
                 const status = getStatus(inv);
+                const estado = estados[inv.id];
+                const trabajoId = estado?.trabajo_id;
+                const isFacturable = trabajoId && inv.tipo.toLowerCase().startsWith('factura');
+                const facturaArca = trabajoId ? facturasArcaMap[trabajoId] : null;
+
                 return (
                   <tr key={inv.id} className="hover:bg-surface-container-low transition-colors group cursor-pointer">
                     <td className="px-8 py-5 text-sm font-medium">{new Date(inv.fecha).toLocaleDateString()}</td>
@@ -213,6 +313,36 @@ const BillingPage: React.FC = () => {
                       <span className={`px-3 py-1 text-[10px] font-bold uppercase rounded-full tracking-wider ${status.color}`}>
                         {status.label}
                       </span>
+                    </td>
+                    <td className="px-6 py-5 text-center" onClick={(e) => e.stopPropagation()}>
+                      {isFacturable ? (
+                        facturaArca ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="text-[10px] font-mono font-bold text-on-surface-variant leading-none">
+                              PV {String(facturaArca.punto_venta || 0).padStart(4, '0')} - Nº {String(facturaArca.numero_comprobante || 0).padStart(8, '0')}
+                            </span>
+                            <span className="mt-1.5 px-2 py-0.5 text-[9px] font-black uppercase rounded bg-emerald-500/10 text-emerald-700 border border-emerald-500/25 tracking-wider leading-none">
+                              CAE: {facturaArca.cae}
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleFacturarArca(trabajoId, inv.id)}
+                            disabled={facturandoId === inv.id}
+                            title="Facturar con ARCA/AFIP"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-600 text-blue-700 hover:text-white font-bold rounded-xl border border-transparent hover:border-blue-500/20 transition-all active:scale-95 text-[10px] uppercase tracking-widest disabled:opacity-50"
+                          >
+                            {facturandoId === inv.id ? (
+                              <span className="material-symbols-outlined text-sm animate-spin leading-none">sync</span>
+                            ) : (
+                              <span className="material-symbols-outlined text-sm font-black leading-none">receipt_long</span>
+                            )}
+                            <span>Facturar ARCA</span>
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-xs text-outline/30 italic">No facturable</span>
+                      )}
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-center gap-2">
@@ -241,12 +371,13 @@ const BillingPage: React.FC = () => {
               })}
               {!loading && filteredInvoices.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-8 py-20 text-center text-on-surface-variant/50 italic text-sm">
+                  <td colSpan={8} className="px-8 py-20 text-center text-on-surface-variant/50 italic text-sm">
                     No se encontraron comprobantes que coincidan con la búsqueda.
                   </td>
                 </tr>
               )}
             </tbody>
+
           </table>
         </div>
       </div>

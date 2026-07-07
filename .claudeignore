@@ -1,0 +1,38 @@
+# .claudeignore — Claude Code NO lee estos archivos
+# Colocar en la raíz del proyecto junto al CLAUDE.md
+
+# Variables de entorno con credenciales reales
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+
+# Certificados y claves privadas
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cert
+
+# Directorios sensibles
+secrets/
+credentials/
+.secrets/
+
+# Build y dependencias (peso, no seguridad)
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+
+# Supabase temporales
+supabase/.branches
+supabase/.temp
+
+# Config local de Claude (overrides personales)
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 
@@ -156,6 +157,22 @@ const ConfigDropdownPage: React.FC = () => {
               </div>
             </div>
           ))}
+
+          {/* External Services Section */}
+          <div className="space-y-2">
+            <h3 className="px-4 text-[10px] font-black text-outline uppercase tracking-[0.2em]">Servicios</h3>
+            <div className="space-y-1">
+              <Link
+                to="/configuracion/arca"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group text-on-surface-variant hover:bg-surface-container-high"
+              >
+                <span className="material-symbols-outlined text-xl group-hover:scale-110 transition-transform">
+                  receipt_long
+                </span>
+                <span className="text-sm font-bold tracking-tight">Facturación ARCA/AFIP</span>
+              </Link>
+            </div>
+          </div>
         </nav>
       </aside>
 

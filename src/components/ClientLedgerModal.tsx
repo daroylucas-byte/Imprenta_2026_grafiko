@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import AdjustmentModal from './AdjustmentModal';
 
 interface LedgerItem {
   id: string;
@@ -30,6 +31,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
   const [fullClient, setFullClient] = useState<any>(null);
   const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo_pendiente: 0, credito_disponible: 0, saldo_neto: 0 });
   const [activeTab, setActiveTab] = useState<'historial' | 'deudas'>('historial');
+  const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false);
 
   const fetchLedgerData = useCallback(async () => {
     setLoading(true);
@@ -99,6 +101,24 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
           haber: 0, // Balance neutral as it's an internal movement
           is_application: true,
           amount: a.importe
+        });
+      });
+
+      // Add Manual Adjustments (Notas de Crédito / Débito)
+      const { data: adjustments } = await supabase
+        .from('t_ajustes_cc')
+        .select('*')
+        .eq('cliente_id', client.id);
+
+      adjustments?.forEach(a => {
+        items.push({
+          id: a.id,
+          fecha: a.fecha,
+          tipo: a.tipo === 'credito' ? 'NOTA CRÉDITO' : 'NOTA DÉBITO',
+          numero: '---',
+          descripcion: a.motivo || (a.tipo === 'credito' ? 'Nota de crédito' : 'Nota de débito'),
+          debe: a.tipo === 'debito' ? Number(a.monto) : 0,
+          haber: a.tipo === 'credito' ? Number(a.monto) : 0,
         });
       });
 
@@ -376,14 +396,25 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                 <span className="text-[10px] ml-1 uppercase">{totals.saldo_pendiente > 0 ? 'Deudor' : 'Al día'}</span>
               </p>
            </div>
-           <div className="px-8 py-6 flex items-center justify-center bg-slate-50">
-              <button 
+           <div className="px-8 py-6 flex flex-col items-center justify-center gap-2 bg-slate-50">
+              <button
                 onClick={applyFIFOPayments}
                 disabled={loading || totals.credito_disponible <= 0 || pendingJobs.length === 0}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-900/10 hover:bg-primary transition-all active:scale-95 disabled:opacity-30 disabled:grayscale"
               >
                 <span className="material-symbols-outlined text-lg">auto_fix_high</span>
-                Aplicar FIFO
+                Aplicar crédito disponible a deuda
+              </button>
+              <p className="text-[8px] text-outline font-medium text-center leading-tight opacity-80 max-w-[220px]">
+                Usá esto solo si hay crédito a favor sin aplicar (recibos anteriores no imputados).
+              </p>
+              <button
+                onClick={() => setIsAdjustmentOpen(true)}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-indigo-600 border border-indigo-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all active:scale-95 disabled:opacity-30 mt-1"
+              >
+                <span className="material-symbols-outlined text-lg">receipt_long</span>
+                Ajustar Saldo
               </button>
            </div>
         </div>
@@ -511,6 +542,14 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
            </div>
         </div>
       </div>
+
+      {isAdjustmentOpen && (
+        <AdjustmentModal
+          client={client}
+          onClose={() => setIsAdjustmentOpen(false)}
+          onSuccess={fetchLedgerData}
+        />
+      )}
     </div>
   );
 };
