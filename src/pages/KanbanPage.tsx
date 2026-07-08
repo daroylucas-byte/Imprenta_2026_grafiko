@@ -41,7 +41,7 @@ const KanbanPage: React.FC = () => {
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'due_soon' | 'overdue'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -439,8 +439,7 @@ const KanbanPage: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Billing Action - Hidden for now */}
-                        {false && col.status === 'TERMINADO' && (
+                        {col.status === 'TERMINADO' && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -588,8 +587,7 @@ const KanbanPage: React.FC = () => {
                               <span className="material-symbols-outlined text-lg">edit</span>
                             </button>
 
-                            {/* Billing Action - Hidden for now */}
-                            {false && currentStatus === 'TERMINADO' && (
+                            {currentStatus === 'TERMINADO' && (
                               <button
                                 onClick={() => {
                                   setSelectedJob(job);

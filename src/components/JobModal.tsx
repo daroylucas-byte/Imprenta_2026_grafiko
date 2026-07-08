@@ -34,6 +34,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const [clientCredit, setClientCredit] = useState(0);
   const [applyingCredit, setApplyingCredit] = useState(false);
 
+  // Client search combobox state
+  const [clientSearch, setClientSearch] = useState('');
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+
   const [currentItem, setCurrentItem] = useState<any>({
     producto_id: '',
     cantidad: 1,
@@ -51,7 +55,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         { data: c }, { data: pList }, { data: s }, { data: si }, { data: t },
         { data: p }, { data: a }, { data: tm }, { data: e }
       ] = await Promise.all([
-        supabase.from('t_clientes').select('id, razon_social, nombre, es_mayorista').order('razon_social'),
+        supabase.from('t_clientes').select('id, razon_social, nombre, es_mayorista, activo').order('razon_social'),
         supabase.from('t_productos').select('*').order('nombre'),
         supabase.from('t_conf_soportes').select('id, nombre').order('nombre'),
         supabase.from('t_conf_sistemas_impresion').select('id, nombre').order('nombre'),
@@ -166,6 +170,19 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     };
     loadAll();
   }, [jobId, fetchLookups, fetchJobDetails]);
+
+  // Pre-fill the client search combobox text once the job's client_id and the
+  // clientes lookup are both available (e.g. when editing an existing job).
+  useEffect(() => {
+    const currentClienteId = watch('cliente_id');
+    if (currentClienteId && clientes.length > 0) {
+      const client = clientes.find(c => c.id === currentClienteId);
+      if (client) {
+        setClientSearch(`${client.razon_social} ${client.es_mayorista ? '(M)' : '(m)'}`);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientes, jobId]);
 
   // Handle client selection to default price type
   const handleClientChange = (clientId: string) => {
@@ -539,23 +556,49 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </div>
                 )}
 
-                <div className="space-y-1">
+                <div className="space-y-1 relative">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Cliente</label>
-                  <select
-                    {...register('cliente_id', { required: true })}
+                  <input type="hidden" {...register('cliente_id', { required: true })} />
+                  <input
+                    type="text"
+                    value={clientSearch}
                     onChange={(e) => {
-                      register('cliente_id').onChange(e);
-                      handleClientChange(e.target.value);
+                      setClientSearch(e.target.value);
+                      setIsClientDropdownOpen(true);
+                      if (watch('cliente_id')) setValue('cliente_id', '', { shouldValidate: true });
                     }}
-                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
-                  >
-                    <option value="">Seleccionar cliente...</option>
-                    {clientes.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.razon_social} {c.es_mayorista ? '(M)' : '(m)'}
-                      </option>
-                    ))}
-                  </select>
+                    onFocus={() => setIsClientDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setIsClientDropdownOpen(false), 150)}
+                    placeholder="Buscar cliente por nombre o razón social..."
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                  />
+                  {isClientDropdownOpen && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-2xl shadow-xl border border-outline-variant/10 max-h-64 overflow-y-auto">
+                      {clientes
+                        .filter(c => c.activo !== false || c.id === watch('cliente_id'))
+                        .filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase()))
+                        .map(c => (
+                          <button
+                            type="button"
+                            key={c.id}
+                            onMouseDown={() => {
+                              setValue('cliente_id', c.id, { shouldValidate: true });
+                              setClientSearch(`${c.razon_social} ${c.es_mayorista ? '(M)' : '(m)'}`);
+                              setIsClientDropdownOpen(false);
+                              handleClientChange(c.id);
+                            }}
+                            className="w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-primary/5 transition-colors"
+                          >
+                            {c.razon_social} {c.es_mayorista ? '(M)' : '(m)'}{c.activo === false ? ' (Inactivo)' : ''}
+                          </button>
+                        ))}
+                      {clientes
+                        .filter(c => c.activo !== false || c.id === watch('cliente_id'))
+                        .filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase())).length === 0 && (
+                        <p className="px-4 py-3 text-xs text-outline/50 italic">Sin resultados</p>
+                      )}
+                    </div>
+                  )}
                   {errors.cliente_id && <p className="text-[10px] text-error font-bold mt-1 ml-1">Requerido</p>}
                 </div>
 

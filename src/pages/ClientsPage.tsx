@@ -19,6 +19,7 @@ interface Client {
   total_cobrado?: number;
   saldo_pendiente?: number;
   credito_disponible?: number;
+  activo: boolean;
 }
 
 const ClientsPage: React.FC = () => {
@@ -30,6 +31,7 @@ const ClientsPage: React.FC = () => {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [activeClient, setActiveClient] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<'activos' | 'inactivos'>('activos');
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -53,14 +55,33 @@ const ClientsPage: React.FC = () => {
     fetchClients();
   }, [fetchClients]);
 
-  const filteredClients = clients.filter(c => 
-    c.razon_social.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const handleToggleActivo = async (client: Client) => {
+    const nuevoEstado = !client.activo;
+    if (nuevoEstado === false && !window.confirm(`¿Inactivar a ${client.razon_social}? No podrás elegirlo para trabajos nuevos, pero su historial se conserva intacto.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('t_clientes')
+        .update({ activo: nuevoEstado })
+        .eq('id', client.id);
+
+      if (error) throw error;
+      toast.success(nuevoEstado ? 'Cliente reactivado' : 'Cliente inactivado');
+      fetchClients();
+    } catch (error: any) {
+      toast.error('Error al actualizar cliente: ' + error.message);
+    }
+  };
+
+  const filteredClients = clients.filter(c =>
+    (activeTab === 'activos' ? c.activo !== false : c.activo === false) &&
+    (c.razon_social.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.cuit?.includes(searchTerm) ||
-    c.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    c.email?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   // Statistics
-  const totalClients = clients.length;
+  const totalClients = clients.filter(c => c.activo !== false).length;
   const newThisMonth = clients.filter(c => {
     const created = new Date(c.created_at);
     const now = new Date();
@@ -114,13 +135,29 @@ const ClientsPage: React.FC = () => {
           <h2 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">Directorio Comercial</h2>
           <div className="relative w-full md:w-96">
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
-            <input 
+            <input
               className="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-6 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
               placeholder="Buscar por Razón Social, CUIT o Email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex px-8 bg-white border-b border-outline-variant/5">
+           <button
+             onClick={() => setActiveTab('activos')}
+             className={`px-8 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'activos' ? 'border-primary text-primary' : 'border-transparent text-outline'}`}
+           >
+             Activos
+           </button>
+           <button
+             onClick={() => setActiveTab('inactivos')}
+             className={`px-8 py-4 text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'inactivos' ? 'border-primary text-primary' : 'border-transparent text-outline'}`}
+           >
+             Inactivos
+           </button>
         </div>
 
         <div className="overflow-x-auto no-scrollbar">
@@ -198,7 +235,7 @@ const ClientsPage: React.FC = () => {
                             <span className="material-symbols-outlined text-lg">add_card</span>
                           </button>
 
-                          <button 
+                          <button
                              onClick={(e) => {
                                e.stopPropagation();
                                setSelectedClientId(client.id);
@@ -208,6 +245,19 @@ const ClientsPage: React.FC = () => {
                            >
                             <span className="material-symbols-outlined text-lg">edit</span>
                           </button>
+
+                          <button
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleToggleActivo(client);
+                             }}
+                             title={activeTab === 'activos' ? 'Inactivar Cliente' : 'Reactivar Cliente'}
+                             className={activeTab === 'activos'
+                               ? 'bg-error/5 text-error hover:bg-error hover:text-white transition-all p-2 rounded-xl border border-error/10 shadow-sm'
+                               : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all p-2 rounded-xl border border-emerald-100 shadow-sm'}
+                           >
+                            <span className="material-symbols-outlined text-lg">{activeTab === 'activos' ? 'person_off' : 'person_check'}</span>
+                          </button>
                         </div>
                     </td>
                   </tr>
@@ -215,7 +265,11 @@ const ClientsPage: React.FC = () => {
                 {!loading && filteredClients.length === 0 && (
                   <tr>
                     <td colSpan={5} className="py-20 text-center text-outline/40 italic text-sm">
-                      No se encontraron clientes para la búsqueda "{searchTerm}"
+                      {searchTerm
+                        ? `No se encontraron clientes para la búsqueda "${searchTerm}"`
+                        : activeTab === 'activos'
+                          ? 'No hay clientes activos'
+                          : 'No hay clientes inactivos'}
                     </td>
                   </tr>
                 )}

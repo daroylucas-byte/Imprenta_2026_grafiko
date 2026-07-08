@@ -19,7 +19,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title = "Overview Dashboard" 
 
   const navItems = [
     { name: 'Dashboard', icon: 'dashboard', path: '/' },
-    { name: 'Comercial', icon: 'storefront', path: '/comercial' },
+    { name: 'Ventas', icon: 'storefront', path: '/comercial' },
     { name: 'Clientes', icon: 'group', path: '/clientes' },
     { name: 'Productos', icon: 'inventory_2', path: '/productos' },
     { name: 'Facturación', icon: 'receipt_long', path: '/facturacion' },
