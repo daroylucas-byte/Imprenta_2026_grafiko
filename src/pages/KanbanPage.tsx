@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import JobModal from '../components/JobModal';
 import BillingModal from '../components/BillingModal';
+import PaymentModal from '../components/PaymentModal';
 import { printJobVoucher } from '../utils/printJob';
 
 interface Job {
@@ -39,6 +40,8 @@ const KanbanPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentClient, setPaymentClient] = useState<{ id: string; razon_social: string } | null>(null);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('table');
@@ -69,7 +72,8 @@ const KanbanPage: React.FC = () => {
     fetchJobs();
   }, [fetchJobs]);
 
-  const handleMoveJob = async (id: string, newStatus: string) => {
+  const handleMoveJob = async (job: Job, newStatus: string) => {
+    const id = job.id;
     try {
       const updateData: any = { estado: newStatus };
 
@@ -99,6 +103,18 @@ const KanbanPage: React.FC = () => {
       if (error) throw error;
       toast.success(`Trabajo movido a ${newStatus.toLowerCase()}`);
       fetchJobs();
+
+      // Si el trabajo se entrega con saldo pendiente, ofrecer cobrar en el momento.
+      // El cobro es opcional: el trabajo ya quedó ENTREGADO más arriba, cancelar
+      // el modal no revierte el estado.
+      if (newStatus === 'ENTREGADO' && Number(job.saldo_pendiente || 0) > 0) {
+        const clienteId = (job as any).cliente_id;
+        const clienteNombre = (job as any).cliente_nombre;
+        if (clienteId) {
+          setPaymentClient({ id: clienteId, razon_social: clienteNombre || 'Cliente' });
+          setIsPaymentModalOpen(true);
+        }
+      }
     } catch (error: any) {
       toast.error('Error al mover trabajo: ' + error.message);
     }
@@ -430,7 +446,7 @@ const KanbanPage: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleMoveJob(job.id, col.prev!);
+                              handleMoveJob(job, col.prev!);
                             }}
                             title="Regresar al estado anterior"
                             className="aspect-square bg-surface-container-low hover:bg-error hover:text-white text-outline-variant rounded-xl transition-all flex items-center justify-center border border-outline-variant/5"
@@ -457,7 +473,7 @@ const KanbanPage: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleMoveJob(job.id, col.next!);
+                              handleMoveJob(job, col.next!);
                             }}
                             className={`${(col.prev || col.status === 'TERMINADO') ? 'col-span-4' : 'col-span-5'} py-2 bg-surface-container-low hover:bg-primary hover:text-white text-primary text-[10px] font-black uppercase tracking-[0.1em] rounded-xl transition-all flex items-center justify-center gap-2 group/btn border border-outline-variant/5 h-10`}
                           >
@@ -496,6 +512,7 @@ const KanbanPage: React.FC = () => {
                   <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Cliente</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Descripción</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Total</th>
+                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Ingreso / Caducidad</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Entrega</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Estado</th>
                   <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Acciones</th>
@@ -503,7 +520,7 @@ const KanbanPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-outline-variant/5">
                 {jobs.filter(j => {
-                  const clientName = Array.isArray(j.t_clientes) ? j.t_clientes[0]?.razon_social : j.t_clientes?.razon_social;
+                  const clientName = (j as any).cliente_nombre;
                   return (clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                     j.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
                 })
@@ -525,7 +542,7 @@ const KanbanPage: React.FC = () => {
                       <tr key={job.id} className="hover:bg-surface-container-low transition-colors group">
                         <td className="px-8 py-5">
                           <p className="text-sm font-bold text-on-surface">
-                            {Array.isArray(job.t_clientes) ? job.t_clientes[0]?.razon_social : job.t_clientes?.razon_social}
+                            {(job as any).cliente_nombre || 'Cliente sin nombre'}
                           </p>
                           <p className="text-[10px] text-outline font-medium">#{job.id.slice(0, 8).toUpperCase()}</p>
                         </td>
@@ -537,6 +554,16 @@ const KanbanPage: React.FC = () => {
                           )}
                           {job.facturado && (
                             <span className="text-[8px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-black uppercase">Facturado</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-5">
+                          <p className="text-[10px] text-on-surface-variant font-medium">
+                            Ingreso: {(job as any).fecha ? (job as any).fecha.split('-').reverse().join('/') : '---'}
+                          </p>
+                          {job.estado === 'PRESUPUESTADO' && (
+                            <p className={`text-[10px] font-bold ${job.fecha_vencimiento_presupuesto ? 'text-error' : 'text-outline/50'}`}>
+                              Caduca: {job.fecha_vencimiento_presupuesto ? job.fecha_vencimiento_presupuesto.split('-').reverse().join('/') : '---'}
+                            </p>
                           )}
                         </td>
                         <td className="px-6 py-5 text-center">
@@ -558,7 +585,7 @@ const KanbanPage: React.FC = () => {
                             {/* Prev Action */}
                             {col.prev && (
                               <button
-                                onClick={() => handleMoveJob(job.id, col.prev!)}
+                                onClick={() => handleMoveJob(job, col.prev!)}
                                 title="Regresar estado"
                                 className="p-2 hover:bg-error/10 text-error/60 hover:text-error rounded-lg transition-all"
                               >
@@ -603,7 +630,7 @@ const KanbanPage: React.FC = () => {
                             {/* Next Action */}
                             {col.next && (
                               <button
-                                onClick={() => handleMoveJob(job.id, col.next!)}
+                                onClick={() => handleMoveJob(job, col.next!)}
                                 title={col.label}
                                 className="p-2 bg-primary text-white rounded-lg shadow-sm hover:shadow-md hover:brightness-110 transition-all flex items-center justify-center"
                               >
@@ -643,6 +670,18 @@ const KanbanPage: React.FC = () => {
           onClose={() => {
             setIsModalOpen(false);
             setSelectedJobId(undefined);
+          }}
+          onSuccess={fetchJobs}
+        />
+      )}
+
+      {/* Payment Modal - se abre al entregar un trabajo con saldo pendiente */}
+      {isPaymentModalOpen && paymentClient && (
+        <PaymentModal
+          client={paymentClient}
+          onClose={() => {
+            setIsPaymentModalOpen(false);
+            setPaymentClient(null);
           }}
           onSuccess={fetchJobs}
         />

@@ -13,6 +13,7 @@ interface Product {
   activo: boolean;
   requiere_numeracion: boolean;
   requiere_fecha_muestra: boolean;
+  unidad_medida: string;
   created_at: string;
 }
 
@@ -55,7 +56,8 @@ const ProductsPage: React.FC = () => {
       descripcion: '',
       activo: true,
       requiere_numeracion: false,
-      requiere_fecha_muestra: false
+      requiere_fecha_muestra: false,
+      unidad_medida: 'unidad'
     });
     setIsPanelOpen(true);
   };
@@ -97,6 +99,7 @@ const ProductsPage: React.FC = () => {
             descripcion: selectedProduct.descripcion,
             requiere_numeracion: selectedProduct.requiere_numeracion,
             requiere_fecha_muestra: selectedProduct.requiere_fecha_muestra,
+            unidad_medida: selectedProduct.unidad_medida,
           })
           .eq('id', selectedProduct.id);
         if (error) throw error;
@@ -197,12 +200,17 @@ const ProductsPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                          p.categoria === 'Insumos' ? 'bg-emerald-100 text-emerald-700' : 
-                          p.categoria === 'Servicios' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'
-                        }`}>
-                          {p.categoria || 'S/C'}
-                        </span>
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            p.categoria === 'Insumos' ? 'bg-emerald-100 text-emerald-700' :
+                            p.categoria === 'Servicios' ? 'bg-orange-100 text-orange-700' : 'bg-indigo-100 text-indigo-700'
+                          }`}>
+                            {p.categoria || 'S/C'}
+                          </span>
+                          <span className="text-[9px] font-bold text-on-surface-variant/60 uppercase tracking-widest px-1">
+                            {p.unidad_medida === 'metro' ? 'Por metro' : 'Por unidad'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-5 text-right font-bold text-xs text-on-surface-variant/70">
                         $ {Number(p.precio_costo).toLocaleString('es-AR')}
@@ -291,7 +299,7 @@ const ProductsPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5 col-span-2">
                     <label className="text-[10px] font-black uppercase tracking-[0.15em] text-on-surface-variant px-1">Categoría</label>
-                    <select 
+                    <select
                       className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all appearance-none"
                       value={selectedProduct?.categoria || 'Insumos'}
                       onChange={(e) => setSelectedProduct(prev => ({ ...prev, categoria: e.target.value }))}
@@ -301,6 +309,17 @@ const ProductsPage: React.FC = () => {
                       <option>Talonarios</option>
                       <option>Folletería</option>
                       <option>Imprenta</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.15em] text-on-surface-variant px-1">Unidad de Medida</label>
+                    <select
+                      className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all appearance-none"
+                      value={selectedProduct?.unidad_medida || 'unidad'}
+                      onChange={(e) => setSelectedProduct(prev => ({ ...prev, unidad_medida: e.target.value }))}
+                    >
+                      <option value="unidad">Unidad</option>
+                      <option value="metro">Metro</option>
                     </select>
                   </div>
                 </div>

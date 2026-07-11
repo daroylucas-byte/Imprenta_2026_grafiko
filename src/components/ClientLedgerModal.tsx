@@ -32,6 +32,8 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
   const [totals, setTotals] = useState({ debe: 0, haber: 0, saldo_pendiente: 0, credito_disponible: 0, saldo_neto: 0 });
   const [activeTab, setActiveTab] = useState<'historial' | 'deudas'>('historial');
   const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false);
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
 
   const fetchLedgerData = useCallback(async () => {
     setLoading(true);
@@ -275,8 +277,18 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
     fetchLedgerData();
   }, [fetchLedgerData]);
 
+  // El saldo acumulado de cada fila ya se calculó sobre el historial completo
+  // en fetchLedgerData; el filtro de fechas solo oculta filas fuera de rango,
+  // sin recalcular el saldo, para que siga reflejando la deuda real acumulada.
+  const filteredLedger = ledger.filter(item => {
+    const fechaItem = item.fecha.slice(0, 10);
+    if (fechaDesde && fechaItem < fechaDesde) return false;
+    if (fechaHasta && fechaItem > fechaHasta) return false;
+    return true;
+  });
+
   const generatePDF = () => {
-    if (!ledger.length) return;
+    if (!filteredLedger.length) return;
     
     const doc = new jsPDF();
     
@@ -323,7 +335,8 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
 
     // --- Ledger Table ---
     // Note: Use a copy and sort for PDF (Oldest first for chronological order in PDF looks better)
-    const tableData = [...ledger].reverse().map(item => [
+    // Respeta el filtro de fechas activo en pantalla, consistente con lo que ve el usuario.
+    const tableData = [...filteredLedger].reverse().map(item => [
       new Date(item.fecha).toLocaleDateString('es-AR'),
       `${item.tipo}${item.numero !== '---' ? ` [${item.numero}]` : ''}`,
       item.descripcion,
@@ -437,6 +450,37 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
 
         {/* Ledger Table / Pending Jobs */}
         <div className="flex-1 overflow-y-auto no-scrollbar p-10 bg-slate-50/20">
+          {activeTab === 'historial' && (
+            <div className="flex items-end gap-4 mb-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Desde</label>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  className="bg-white border border-outline-variant/10 rounded-2xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 shadow-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Hasta</label>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  className="bg-white border border-outline-variant/10 rounded-2xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 shadow-sm"
+                />
+              </div>
+              {(fechaDesde || fechaHasta) && (
+                <button
+                  onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-outline hover:text-error transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span>
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
+          )}
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center space-y-4">
               <div className="w-12 h-12 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
@@ -454,7 +498,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((item, idx) => (
+                {filteredLedger.map((item, idx) => (
                   <tr key={idx} className={`group animate-in fade-in slide-in-from-right-4 duration-300 ${(item as any).is_application ? 'opacity-60 grayscale-[0.5]' : ''}`} style={{ animationDelay: `${idx * 20}ms` }}>
                     <td className="bg-white px-6 py-5 rounded-l-3xl border-y border-l border-outline-variant/10 first-letter:uppercase">
                       <p className="text-sm font-bold text-on-surface">{new Date(item.fecha).toLocaleDateString('es-AR')}</p>
@@ -519,10 +563,17 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
             </div>
           )}
           
-          {!loading && ledger.length === 0 && (
+          {!loading && activeTab === 'historial' && ledger.length === 0 && (
             <div className="h-64 flex flex-col items-center justify-center text-outline/30 space-y-4">
                <span className="material-symbols-outlined text-6xl">account_balance_wallet</span>
                <p className="text-[10px] font-black uppercase tracking-widest">Sin movimientos registrados</p>
+            </div>
+          )}
+
+          {!loading && activeTab === 'historial' && ledger.length > 0 && filteredLedger.length === 0 && (
+            <div className="h-64 flex flex-col items-center justify-center text-outline/30 space-y-4">
+               <span className="material-symbols-outlined text-6xl">filter_alt_off</span>
+               <p className="text-[10px] font-black uppercase tracking-widest">Sin movimientos en el rango seleccionado</p>
             </div>
           )}
         </div>
@@ -531,9 +582,9 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
         <div className="px-10 py-6 bg-white border-t border-outline-variant/10 flex justify-between items-center">
            <p className="text-[9px] font-bold text-outline uppercase tracking-[0.2em]">Cálculo en tiempo real según facturación y cobros registrados</p>
            <div className="flex gap-4">
-              <button 
+              <button
                 onClick={generatePDF}
-                disabled={loading || ledger.length === 0}
+                disabled={loading || filteredLedger.length === 0}
                 className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-2xl text-xs font-bold shadow-lg shadow-emerald-500/20 hover:brightness-110 active:scale-95 transition-all"
               >
                  <span className="material-symbols-outlined text-lg">downloading</span>

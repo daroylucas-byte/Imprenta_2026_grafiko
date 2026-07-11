@@ -11,7 +11,9 @@ interface JobModalProps {
 }
 
 const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm();
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<any>({
+    defaultValues: { fecha: new Date().toISOString().split('T')[0] }
+  });
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
 
@@ -98,6 +100,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           cliente_id: data.cliente_id,
           descripcion: data.descripcion,
           cantidad: data.cantidad,
+          fecha: data.fecha || '',
           fecha_entrega: data.fecha_entrega,
           soporte_id: data.soporte_id || '',
           sistema_impresion_id: data.sistema_impresion_id || '',
@@ -112,6 +115,11 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           facturado: data.facturado || false,
           fecha_aprobacion: data.fecha_aprobacion || null,
           fecha_vencimiento_presupuesto: data.fecha_vencimiento_presupuesto || '',
+          incluye_iva: data.incluye_iva || false,
+          incluye_diseno: data.incluye_diseno || false,
+          incluye_troquel: data.incluye_troquel || false,
+          requiere_sena: data.requiere_sena || false,
+          observaciones: data.observaciones || '',
         });
       }
 
@@ -506,6 +514,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Fecha de Ingreso</label>
+                  <input
+                    type="date"
+                    {...register('fecha', { required: true })}
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+                <div className="space-y-1">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Estado del Trabajo</label>
                   <select
                     {...register('estado', { required: true })}
@@ -610,6 +626,64 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
                   />
                 </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Condiciones del Presupuesto</label>
+                  {watch('estado') === 'PRESUPUESTADO' ? (
+                    <div className="flex flex-wrap gap-6 bg-surface-container-low rounded-2xl py-4 px-6">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" {...register('incluye_iva')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
+                        <span className="text-xs font-bold text-on-surface">Incluye IVA</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" {...register('incluye_diseno')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
+                        <span className="text-xs font-bold text-on-surface">Incluye Diseño</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" {...register('incluye_troquel')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
+                        <span className="text-xs font-bold text-on-surface">Incluye Troquel</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" {...register('requiere_sena')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
+                        <span className="text-xs font-bold text-on-surface">Requiere Seña</span>
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 bg-surface-container-low rounded-2xl py-4 px-6">
+                      {[
+                        { key: 'incluye_iva', label: 'IVA' },
+                        { key: 'incluye_diseno', label: 'Diseño' },
+                        { key: 'incluye_troquel', label: 'Troquel' },
+                        { key: 'requiere_sena', label: 'Seña' },
+                      ].map(({ key, label }) => (
+                        <span
+                          key={key}
+                          className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-lg tracking-widest ${
+                            watch(key) ? 'bg-emerald-50 text-emerald-600' : 'bg-white text-outline/50'
+                          }`}
+                        >
+                          {label}: {watch(key) ? 'Sí' : 'No'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Observaciones</label>
+                  {watch('estado') === 'PRESUPUESTADO' ? (
+                    <textarea
+                      {...register('observaciones')}
+                      rows={3}
+                      placeholder="Notas adicionales del presupuesto..."
+                      className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 resize-none"
+                    />
+                  ) : (
+                    <p className="w-full bg-surface-container-low rounded-2xl py-3 px-4 text-sm font-bold text-on-surface-variant min-h-[3rem]">
+                      {watch('observaciones') || <span className="text-outline/40 italic font-medium">Sin observaciones</span>}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -642,11 +716,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                     </select>
                   </div>
                   <div className="md:col-span-2 space-y-1">
-                    <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Cantidad</label>
+                    <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
+                      Cantidad {productos.find(p => p.id === currentItem.producto_id)?.unidad_medida === 'metro' ? '(metros)' : ''}
+                    </label>
                     <input
                       type="number"
+                      step="0.01"
                       value={currentItem.cantidad}
-                      onChange={(e) => updateCurrentItem({ cantidad: e.target.value === '' ? '' : parseInt(e.target.value) })}
+                      onChange={(e) => updateCurrentItem({ cantidad: e.target.value === '' ? '' : parseFloat(e.target.value) })}
                       placeholder="0"
                       className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
                     />
@@ -749,7 +826,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             <p>{item.nombre}</p>
                             <p className="text-[8px] uppercase text-outline">{item.tipo_precio}</p>
                           </td>
-                          <td className="px-4 py-4 text-center">{item.cantidad}</td>
+                          <td className="px-4 py-4 text-center">
+                            {item.cantidad}
+                            {item.product?.unidad_medida === 'metro' && <span className="text-[8px] text-outline font-normal ml-0.5">m</span>}
+                          </td>
                           <td className="px-4 py-4 text-right">$ {(Number(item.precio_unitario) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4 text-right font-black">$ {(Number(item.subtotal) || 0).toLocaleString('es-AR')}</td>
                           <td className="px-4 py-4">
@@ -1014,23 +1094,30 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   <span className="material-symbols-outlined font-bold">payments</span>
                   <h4 className="text-sm font-black uppercase tracking-[0.2em]">Totales Iniciales</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className={`grid grid-cols-1 gap-6 ${watch('estado') === 'PRESUPUESTADO' ? '' : 'md:grid-cols-2'}`}>
                   <div className="p-6 bg-primary/5 rounded-[2rem] border border-primary/10 flex flex-col items-center justify-center space-y-2">
                     <p className="text-[10px] font-black text-primary uppercase tracking-widest">Total del Trabajo</p>
                     <p className="text-4xl font-black text-on-surface">$ {(Number(watch('total')) || 0).toLocaleString('es-AR')}</p>
                     <input type="hidden" {...register('total')} />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seña Inicial Sugerida (AR$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      {...register('sena', { valueAsNumber: true })}
-                      placeholder="0.00"
-                      className="w-full h-full bg-surface-container-low border-none rounded-[2rem] py-3 px-8 text-2xl font-black focus:ring-2 focus:ring-primary/30"
-                    />
-                  </div>
+                  {watch('estado') !== 'PRESUPUESTADO' && (
+                    <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seña Inicial Sugerida (AR$)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        {...register('sena', { valueAsNumber: true })}
+                        placeholder="0.00"
+                        className="w-full h-full bg-surface-container-low border-none rounded-[2rem] py-3 px-8 text-2xl font-black focus:ring-2 focus:ring-primary/30"
+                      />
+                    </div>
+                  )}
                 </div>
+                {watch('estado') === 'PRESUPUESTADO' && (
+                  <p className="text-[10px] text-outline font-bold text-center uppercase tracking-widest">
+                    No se cobra seña mientras el trabajo está en presupuesto. Podrá registrarse un pago una vez aprobado.
+                  </p>
+                )}
               </div>
             )}
           </form>
