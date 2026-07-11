@@ -11,6 +11,7 @@ import ConfigDropdownPage from './pages/ConfigDropdownPage';
 import ProductsPage from './pages/ProductsPage';
 import CashRegisterPage from './pages/CashRegisterPage';
 import PromotionsPage from './pages/PromotionsPage';
+import ClientCampaignsPage from './pages/ClientCampaignsPage';
 import ArcaConfigPage from './pages/ArcaConfigPage';
 import Layout from './components/Layout';
 
@@ -79,6 +80,11 @@ function App() {
       <Route
         path="/promociones"
         element={user ? <Layout title="Promociones IA"><PromotionsPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/campanas"
+        element={user ? <Layout title="Campañas de Clientes"><ClientCampaignsPage /></Layout> : <Navigate to="/login" />}
       />
 
       {/* Redirect old path */}
