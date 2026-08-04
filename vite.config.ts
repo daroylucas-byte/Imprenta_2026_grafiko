@@ -13,8 +13,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'GestiPrint',
-        short_name: 'GestiPrint',
+        name: 'Grafiko',
+        short_name: 'Grafiko',
         description: 'Sistema de gestión para imprenta',
         theme_color: '#4F46E5',
         background_color: '#ffffff',

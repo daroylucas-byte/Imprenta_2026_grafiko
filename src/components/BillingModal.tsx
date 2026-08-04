@@ -4,6 +4,7 @@ import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getLogoBase64, drawPdfLogoHeader, drawPdfContactFooter } from '../utils/pdfBranding';
 
 interface BillingModalProps {
   job?: any;
@@ -136,22 +137,16 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
     setValue('total', Number(total.toFixed(2)));
   }, [subtotal, iva, setValue]);
 
-  const generatePDF = (invoiceData: any) => {
+  const generatePDF = async (invoiceData: any) => {
     if (!jobDetails) return;
-    
+
+    const logoBase64 = await getLogoBase64();
     const doc = new jsPDF();
     const client = jobDetails.t_clientes;
-    
+
     // --- Header ---
-    doc.setFillColor(30, 41, 59); // Slate-800
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.text('GRAFIKO', 15, 20);
-    doc.setFontSize(10);
-    doc.text('Sistema de Gestión de Imprenta', 15, 30);
-    
+    drawPdfLogoHeader(doc, logoBase64);
+
     doc.setFontSize(14);
     doc.text(invoiceData.tipo.toUpperCase(), 140, 15);
     doc.setFontSize(10);
@@ -231,6 +226,8 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
       doc.text(invoiceData.observaciones, 15, finalY + 5, { maxWidth: 100 });
     }
 
+    drawPdfContactFooter(doc);
+
     doc.save(`Comprobante_${invoiceData.numero || 'descarga'}.pdf`);
   };
 
@@ -306,7 +303,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
 
         // --- PDF GENERATION ---
         try {
-          generatePDF(data);
+          await generatePDF(data);
         } catch (pdfErr) {
           console.error('PDF Generation failed:', pdfErr);
           toast.error('Comprobante guardado pero falló la descarga del PDF');

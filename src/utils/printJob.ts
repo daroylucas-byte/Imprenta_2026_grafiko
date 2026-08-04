@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
+import { getLogoBase64, drawPdfLogoHeader, drawPdfContactFooter } from './pdfBranding';
 
 export const printJobVoucher = async (jobId: string) => {
   try {
@@ -36,18 +37,12 @@ export const printJobVoucher = async (jobId: string) => {
       throw new Error('No se pudo cargar la información del trabajo');
     }
 
+    const logoBase64 = await getLogoBase64();
     const doc = new jsPDF();
     const client = clientes?.find(c => c.id === job.cliente_id);
 
     // --- Header ---
-    doc.setFillColor(30, 41, 59); // Slate-800
-    doc.rect(0, 0, 210, 40, 'F');
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.text('GRAFIKO', 15, 20);
-    doc.setFontSize(10);
-    doc.text('Sistema de Gestión de Imprenta', 15, 30);
+    drawPdfLogoHeader(doc, logoBase64);
 
     doc.setFontSize(14);
     doc.text('COMPROBANTE DE TRABAJO', 120, 20);
@@ -176,6 +171,8 @@ export const printJobVoucher = async (jobId: string) => {
     doc.setTextColor(148, 163, 184);
     doc.setFont('helvetica', 'normal');
     doc.text('Este documento es un comprobante de trabajo y estado de cuenta, no válido como factura fiscal.', 15, 280);
+
+    drawPdfContactFooter(doc);
 
     doc.save(`Trabajo_${jobId.slice(0, 8)}_${client?.razon_social || 'cliente'}.pdf`);
     toast.success('Comprobante generado con éxito');

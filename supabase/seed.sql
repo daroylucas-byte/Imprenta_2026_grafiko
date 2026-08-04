@@ -1,4 +1,4 @@
--- Seed data for GestiPrint
+-- Seed data for Grafiko
 
 -- 1. Roles (Critical for registration)
 INSERT INTO public.t_roles (id, nombre, permisos) VALUES

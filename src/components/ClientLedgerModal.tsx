@@ -4,6 +4,7 @@ import { toast } from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import AdjustmentModal from './AdjustmentModal';
+import { getLogoBase64, drawPdfLogoHeader, drawPdfContactFooter } from '../utils/pdfBranding';
 
 interface LedgerItem {
   id: string;
@@ -287,21 +288,15 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
     return true;
   });
 
-  const generatePDF = () => {
+  const generatePDF = async () => {
     if (!filteredLedger.length) return;
-    
+
+    const logoBase64 = await getLogoBase64();
     const doc = new jsPDF();
-    
+
     // --- Header (Same as Jobs) ---
-    doc.setFillColor(30, 41, 59); // Slate-800
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(24);
-    doc.text('GRAFIKO', 15, 20);
-    doc.setFontSize(10);
-    doc.text('Sistema de Gestión de Imprenta', 15, 30);
-    
+    drawPdfLogoHeader(doc, logoBase64);
+
     doc.setFontSize(14);
     doc.text('CARTOLA DE CUENTA CORRIENTE', 120, 20);
     doc.setFontSize(10);
@@ -362,6 +357,8 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text('Cálculo en tiempo real según facturación y cobros registrados en sistema.', 15, finalY);
+
+    drawPdfContactFooter(doc);
 
     doc.save(`CuentaCorriente_${fullClient?.razon_social || 'cliente'}.pdf`);
   };

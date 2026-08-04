@@ -134,7 +134,7 @@ const ProductsPage: React.FC = () => {
         <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
             <nav className="flex items-center gap-2 text-xs font-medium text-on-surface-variant mb-2">
-              <span>GestiPrint</span>
+              <span>Grafiko</span>
               <span className="material-symbols-outlined text-[14px]">chevron_right</span>
               <span className="text-primary">Productos</span>
             </nav>

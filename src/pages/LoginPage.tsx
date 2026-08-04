@@ -60,12 +60,7 @@ export default function LoginPage() {
           <div className="relative bg-surface-container-lowest p-8 md:p-12 rounded-xl shadow-[0_20px_40px_rgba(11,28,48,0.06)] ring-1 ring-outline-variant/10">
             {/* Branding Header */}
             <div className="flex flex-col items-center mb-10">
-              <div className="w-16 h-16 bg-gradient-to-tr from-primary to-primary-container rounded-xl flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
-                <span className="material-symbols-outlined text-on-primary text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>print</span>
-              </div>
-              <h1 className="font-headline text-3xl font-extrabold tracking-tight text-on-surface">
-                GestiPrint
-              </h1>
+              <img src="/logo-grafiko.jpeg" alt="Grafiko" className="h-16 w-auto rounded-lg shadow-lg shadow-primary/10 mb-6" />
               <p className="text-on-surface-variant text-sm mt-2 text-center">Acceso al Centro de Producción</p>
             </div>
 
@@ -82,7 +77,7 @@ export default function LoginPage() {
                     {...register('email')}
                     className={`block w-full pl-11 bg-surface-container-low border-0 border-b-2 ${errors.email ? 'border-error' : 'border-outline-variant/20'} focus:border-primary focus:ring-0 transition-all text-on-surface placeholder:text-outline py-3 rounded-t-lg`}
                     id="email"
-                    placeholder="nombre@gestiprint.com"
+                    placeholder="nombre@grafiko.com"
                     type="email"
                   />
                 </div>
@@ -152,7 +147,7 @@ export default function LoginPage() {
       {/* Footer */}
       <footer className="w-full py-8 mt-auto bg-surface-container-low border-t border-outline-variant/10 flex flex-col md:flex-row justify-between items-center px-8">
         <div className="mb-4 md:mb-0">
-          <span className="text-xs font-label uppercase tracking-widest text-outline">© 2024 Precision & Paper. All rights reserved.</span>
+          <span className="text-xs font-label uppercase tracking-widest text-outline">© 2026 Grafiko. Todos los derechos reservados.</span>
         </div>
         <div className="flex space-x-6">
           <a className="text-xs font-label uppercase tracking-widest text-outline hover:text-primary transition-colors" href="#">Privacy Policy</a>

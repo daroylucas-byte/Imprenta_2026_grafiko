@@ -44,8 +44,10 @@ const Layout: React.FC<LayoutProps> = ({ children, title = "Overview Dashboard" 
       <aside className={`fixed left-0 top-0 h-full w-[240px] bg-slate-700/90 backdrop-blur-md shadow-2xl z-[70] flex flex-col py-6 transition-transform duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="px-6 mb-10 flex justify-between items-center">
           <div>
-            <h1 className="text-xl font-bold text-white tracking-tighter font-headline">GestiPrint</h1>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-medium">Architectural Atelier</p>
+            <div className="bg-white rounded-lg px-2 py-1 inline-block shadow-md">
+              <img src="/logo-grafiko.jpeg" alt="Grafiko" className="h-8 w-auto" />
+            </div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-medium mt-2">Architectural Atelier</p>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-white/60 hover:text-white">
             <span className="material-symbols-outlined">close</span>

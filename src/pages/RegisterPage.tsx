@@ -61,9 +61,8 @@ export default function RegisterPage() {
     <div className="bg-mesh min-h-screen flex flex-col items-center justify-center text-on-surface selection:bg-primary-fixed selection:text-on-primary-fixed overflow-x-hidden">
       {/* Brand Header */}
       <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-sm px-8 h-16 flex justify-between items-center border-b border-outline-variant/10">
-        <div className="text-xl font-bold tracking-tighter text-primary flex items-center gap-2">
-          <span className="material-symbols-outlined text-2xl">print</span>
-          Precision & Paper
+        <div className="flex items-center gap-2">
+          <img src="/logo-grafiko.jpeg" alt="Grafiko" className="h-8 w-auto rounded" />
         </div>
         <div className="hidden md:flex gap-8">
           <span className="text-on-surface-variant font-headline font-semibold tracking-tight hover:text-primary transition-colors cursor-pointer text-sm">Ayuda</span>
@@ -78,7 +77,7 @@ export default function RegisterPage() {
           {/* Hero Typography */}
           <div className="mb-10 text-center">
             <h1 className="text-3xl font-extrabold tracking-tight text-on-surface mb-2 font-headline">Comienza ahora</h1>
-            <p className="text-on-surface-variant font-body text-sm">Crea tu cuenta profesional para GestiPrint</p>
+            <p className="text-on-surface-variant font-body text-sm">Crea tu cuenta profesional para Grafiko</p>
           </div>
 
           {/* Form */}
@@ -107,7 +106,7 @@ export default function RegisterPage() {
                   {...register('email')}
                   className={`w-full bg-surface-container-low border-b ${errors.email ? 'border-error' : 'border-outline-variant/20'} focus:border-primary focus:ring-0 px-4 py-3 text-on-surface placeholder:text-outline transition-all outline-none rounded-t-lg`}
                   id="email"
-                  placeholder="nombre@gestiprint.com"
+                  placeholder="nombre@grafiko.com"
                   type="email"
                 />
                 <span className="absolute right-3 top-3.5 material-symbols-outlined text-outline group-focus-within:text-primary text-xl">mail</span>
@@ -158,7 +157,7 @@ export default function RegisterPage() {
                   type="checkbox"
                 />
                 <label className="text-sm text-on-surface-variant cursor-pointer" htmlFor="terms">
-                  Acepto los términos de servicio y la política de privacidad de GestiPrint.
+                  Acepto los términos de servicio y la política de privacidad de Grafiko.
                 </label>
               </div>
               {errors.terms && <p className="text-error text-xs">{errors.terms.message}</p>}
@@ -193,7 +192,7 @@ export default function RegisterPage() {
       {/* Footer */}
       <footer className="w-full py-8 mt-auto bg-surface-container-low border-t border-outline-variant/10">
         <div className="flex flex-col md:flex-row justify-center items-center gap-6 w-full max-w-7xl mx-auto px-8 text-center md:text-left">
-          <span className="font-body text-[10px] tracking-wide uppercase text-outline">© 2024 Precision & Paper. All rights reserved.</span>
+          <span className="font-body text-[10px] tracking-wide uppercase text-outline">© 2026 Grafiko. Todos los derechos reservados.</span>
           <div className="flex gap-6">
             <a className="font-body text-[10px] tracking-wide uppercase text-outline hover:text-primary underline decoration-primary/30 transition-all" href="#">Terms of Service</a>
             <a className="font-body text-[10px] tracking-wide uppercase text-outline hover:text-primary underline decoration-primary/30 transition-all" href="#">Privacy Policy</a>

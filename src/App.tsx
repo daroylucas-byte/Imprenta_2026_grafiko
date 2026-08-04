@@ -99,7 +99,7 @@ function App() {
               <div className="flex flex-col items-center justify-center h-[60vh] text-on-surface-variant">
                 <span className="material-symbols-outlined text-6xl mb-4">construction</span>
                 <p className="text-xl font-headline font-bold">Módulo en construcción</p>
-                <p className="text-sm">Próximamente para GestiPrint.</p>
+                <p className="text-sm">Próximamente para Grafiko.</p>
               </div>
             </Layout>
           ) : (
