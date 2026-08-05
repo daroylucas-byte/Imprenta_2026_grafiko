@@ -84,11 +84,13 @@ RLS: todas las tablas `t_*` tienen policy `FOR ALL TO authenticated USING (true)
 
 ## Variables de entorno
 
-No hay `.env.example` en el repo. Confirmado que existe `.env` local (no versionado). Variables esperadas según `lib/supabase.ts`:
+No hay `.env.example` en el repo. Existe `.env` local con las variables esperadas según `lib/supabase.ts`:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
 Regla fija: nunca poner `service_role_key`, tokens de API ni certificados en variables `VITE_*` — esas van al bundle público del cliente.
+
+**Incidente de seguridad y fix (2026-08-04)**: se detectó que `.env` estaba trackeado por git y público en GitHub (`daroylucas-byte/Imprenta_2026_grafiko`, repo público) desde el commit `8f5a27d` (2026-04-22) — causado por una línea corrupta en `.gitignore` (`. e n v` con bytes nulos intercalados) que nunca funcionó como patrón de ignore. Confirmado por el usuario que `.env` solo contenía `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (públicas por diseño, visibles igual en el bundle del cliente), así que no se rotó ninguna key. Fix aplicado: `.gitignore` reescrito con las entradas mínimas recomendadas (`.env*`, certificados, `.claude/settings.local.json`, `CLAUDE.local.md`, temporales de Supabase) y `.env` sacado del tracking hacia adelante con `git rm --cached` (commits `036804b`/`a5195bd`). **El archivo sigue visible en commits históricos** — no se reescribió el historial (`git filter-repo` + force-push) porque el usuario decidió que el riesgo real era bajo; si en el futuro se agrega algo más sensible a `.env` (o se decide limpiar el historial), evaluarlo de nuevo.
 
 ## Estado del plan en curso (cuenta corriente / pagos / facturación ARCA / promos IA)
 
@@ -142,6 +144,13 @@ Se definió un plan de 4 fases a partir de un prompt de referencia (ERP genéric
   - **Bug post-entrega y fix (2026-07-11)**: `fetchCampanas` (un `useCallback`) tenía `selectedCampana` como dependencia y llamaba `setSelectedCampana(...)` en su propio cuerpo — creaba un loop infinito (actualizar el estado recreaba el callback, que era dependencia del `useEffect` que lo invocaba al cambiar de cliente, que volvía a llamarlo). Se veía como decenas de requests repetidas a `t_campanas_cliente`/`t_campana_posts`/etc. en la pestaña Network y la página nunca salía de "Cargando datos del cliente...". Fix: `setSelectedCampana` reescrito con updater funcional (`prev => ...`) para no depender de `selectedCampana` en el closure, dejando el `useCallback` con `[]`. **Si aparece un loop de requests similar en otra página, revisar primero si algún `useCallback`/`useEffect` tiene como dependencia un estado que él mismo actualiza.**
   - **Fix de estilo post-entrega (2026-07-11)**: Gemini había usado `rounded-2.5xl` en varias cards de `ClientCampaignsPage.tsx`, una clase inválida en Tailwind v4 (no está definida en `@theme` de `src/index.css`, que solo tiene `radius-full/xl/lg/default`) — se ignoraba silenciosamente sin romper el build pero perdiendo el border-radius. Corregido reemplazando por `rounded-[1.75rem]`.
   - Verificado con `tsc --noEmit` y `npm run build` limpios. Commiteado y pusheado a `origin/main` (`github.com/daroylucas-byte/Imprenta_2026_grafiko`) el 2026-07-11.
+
+- **Fase 6 — Branding real (logo Grafiko)** — ✅ completa 2026-08-04. Se reemplazó el placeholder de nombre ("GestiPrint" en index.html/manifest PWA/Layout/Login/Register/Products/App.tsx/seed.sql, "Precision & Paper" en los footers y ayuda de Login/Register) por "Grafiko" en todos lados, y se agregó el logo real del cliente (`public/logo-grafiko.jpeg`, JPEG con fondo blanco sólido, sin transparencia, 217x113px).
+  - **UI**: logo visible en Login y Register (sobre fondo claro, sin badge extra) y en la sidebar de `Layout.tsx` (envuelto en un `div` blanco redondeado a modo de badge, porque el fondo de la sidebar es oscuro `bg-slate-700/90` y el JPEG no tiene transparencia).
+  - **PDFs**: los 3 generadores (`src/utils/printJob.ts`, `src/components/ClientLedgerModal.tsx`, `src/components/BillingModal.tsx`) antes dibujaban el texto "GRAFIKO" a mano con `doc.text()`; ahora usan un helper nuevo y compartido `src/utils/pdfBranding.ts`: `getLogoBase64()` (fetchea `/logo-grafiko.jpeg` y lo cachea en memoria como data URI, porque `jsPDF.addImage()` necesita base64, no una URL), `drawPdfLogoHeader(doc, logoBase64)` (rectángulo oscuro + tarjeta blanca redondeada + logo + subtítulo) y `drawPdfContactFooter(doc)` (pie de página con email, teléfono/WhatsApp y dirección de la imprenta, centrado). Como `getLogoBase64()` es async, las 3 funciones `generatePDF` pasaron a ser `async` (antes no lo eran) — revisado que sus call sites las esperan (`await generatePDF(data)` en `BillingModal.tsx`) o toleran el fire-and-forget sin problema (`onClick={generatePDF}`).
+  - **Datos de contacto** (footer de los PDFs): `grafikoimprenta@gmail.com` · Tel (03541) 425595 · WhatsApp (3541) 622800 · C. Pellegrini 206, 5152, Villa Carlos Paz, Córdoba, Argentina.
+  - Verificado con `tsc --noEmit`, `npm run build` y capturas reales de Login/Register vía Playwright headless (`npx playwright screenshot`, no había `chromium-cli` disponible). No se pudo capturar la sidebar en vivo porque requiere sesión autenticada real contra Supabase y no se quiso crear un usuario de prueba sin permiso — mismo patrón de badge ya validado visualmente en Login.
+  - Commiteado y pusheado a `origin/main` el 2026-08-04 (`ee7518b`).
 
 ## Pendientes conocidos
 
