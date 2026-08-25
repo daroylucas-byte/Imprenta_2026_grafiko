@@ -213,59 +213,18 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
 
     setLoading(true);
     try {
-      // 1. Get all unused receipts (haber_disponible > 0)
-      const { data: receipts } = await supabase
-        .from('t_recibos')
-        .select('id, numero, total')
-        .eq('cliente_id', client.id)
-        .order('fecha', { ascending: true });
+      const { data, error } = await supabase.rpc('aplicar_credito_a_trabajos', {
+        p_cliente_id: client.id
+      });
+      if (error) throw error;
 
-      if (!receipts) return;
-
-      // Calculate used amount per receipt from applications
-      const { data: apps } = await supabase.from('t_recibo_trabajos').select('recibo_id, importe');
-      const usedByReceipt = (apps || []).reduce((acc: any, curr) => {
-        acc[curr.recibo_id] = (acc[curr.recibo_id] || 0) + Number(curr.importe);
-        return acc;
-      }, {});
-
-      let availableReceipts = receipts.map(r => ({
-        ...r,
-        disponible: Number(r.total) - (usedByReceipt[r.id] || 0)
-      })).filter(r => r.disponible > 0);
-
-      let jobsToPay = [...pendingJobs];
-      const newApplications = [];
-
-      for (const receipt of availableReceipts) {
-        let rDisp = receipt.disponible;
-        for (const job of jobsToPay) {
-          if (rDisp <= 0) break;
-          if (job.saldo_pendiente <= 0) continue;
-
-          const amountToApply = Math.min(rDisp, job.saldo_pendiente);
-          newApplications.push({
-            recibo_id: receipt.id,
-            trabajo_id: job.id,
-            cliente_id: client.id,
-            importe: amountToApply
-          });
-
-          rDisp -= amountToApply;
-          job.saldo_pendiente -= amountToApply;
-        }
-        if (newApplications.length >= 50) break; // Batch limit safety
-      }
-
-      if (newApplications.length === 0) {
+      const aplicaciones = data?.[0]?.aplicaciones_creadas || 0;
+      if (aplicaciones === 0) {
         toast('Nada nuevo que aplicar');
         return;
       }
 
-      const { error } = await supabase.from('t_recibo_trabajos').insert(newApplications);
-      if (error) throw error;
-
-      toast.success(`Se aplicaron ${newApplications.length} pagos correctamente (FIFO)`);
+      toast.success(`Se aplicaron ${aplicaciones} pagos correctamente (FIFO)`);
       fetchLedgerData();
     } catch (err: any) {
       toast.error('Error al aplicar FIFO: ' + err.message);

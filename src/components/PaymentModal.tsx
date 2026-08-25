@@ -119,6 +119,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ client, onClose, onSuccess 
                 <option>Transferencia</option>
                 <option>Cheque</option>
                 <option>Mercado Pago</option>
+                <option>Banco</option>
                 <option>Otro</option>
               </select>
             </div>

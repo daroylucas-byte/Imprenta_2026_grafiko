@@ -186,18 +186,9 @@ const ClientsPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-5 text-sm font-bold text-secondary">{client.cuit || '---'}</td>
                     <td className="px-6 py-5">
-                       <div className="flex flex-col gap-1">
-                         <span className="px-2.5 py-1 bg-surface-container-low text-on-surface-variant text-[9px] font-black uppercase rounded-lg border border-outline-variant/10 tracking-widest w-fit">
-                           {client.situacion_iva}
-                         </span>
-                         <span className={`px-2.5 py-1 text-[9px] font-black uppercase rounded-lg tracking-widest w-fit border ${
-                           client.es_mayorista 
-                             ? 'bg-primary/10 text-primary border-primary/20' 
-                             : 'bg-secondary/10 text-secondary border-secondary/20'
-                         }`}>
-                           {client.es_mayorista ? 'MAYORISTA' : 'MINORISTA'}
-                         </span>
-                       </div>
+                       <span className="px-2.5 py-1 bg-surface-container-low text-on-surface-variant text-[9px] font-black uppercase rounded-lg border border-outline-variant/10 tracking-widest w-fit">
+                         {client.situacion_iva}
+                       </span>
                     </td>
                     <td className="px-6 py-5">
                         <p className={`text-sm font-black ${Number(client.saldo_pendiente || 0) > 0 ? 'text-error' : 'text-on-surface'}`}>

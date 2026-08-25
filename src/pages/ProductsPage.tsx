@@ -95,7 +95,7 @@ const ProductsPage: React.FC = () => {
             categoria: selectedProduct.categoria,
             precio_costo: selectedProduct.precio_costo,
             precio_minorista: selectedProduct.precio_minorista,
-            precio_mayorista: selectedProduct.precio_mayorista,
+            precio_mayorista: selectedProduct.precio_minorista,
             descripcion: selectedProduct.descripcion,
             requiere_numeracion: selectedProduct.requiere_numeracion,
             requiere_fecha_muestra: selectedProduct.requiere_fecha_muestra,
@@ -176,8 +176,7 @@ const ProductsPage: React.FC = () => {
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Producto</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Categoría</th>
                     <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Costo</th>
-                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Minorista</th>
-                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Mayorista</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Precio</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-center">Extras</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-center">Acciones</th>
                   </tr>
@@ -217,9 +216,6 @@ const ProductsPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-5 text-right font-headline font-black text-sm text-primary">
                         $ {Number(p.precio_minorista).toLocaleString('es-AR')}
-                      </td>
-                      <td className="px-4 py-5 text-right font-headline font-extrabold text-sm text-secondary">
-                        $ {Number(p.precio_mayorista).toLocaleString('es-AR')}
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex justify-center gap-1.5">
@@ -324,35 +320,28 @@ const ProductsPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 bg-surface-container-low/40 p-5 rounded-3xl border border-outline-variant/10">
+                <div className="grid grid-cols-2 gap-3 bg-surface-container-low/40 p-5 rounded-3xl border border-outline-variant/10">
                   <div className="space-y-1.5">
                     <label className="text-[8px] font-black uppercase tracking-widest text-on-surface-variant block text-center">Costo</label>
-                    <input 
+                    <input
                       required
-                      className="w-full bg-white border border-outline-variant/20 rounded-xl px-2 py-3 text-xs font-bold text-center focus:ring-2 focus:ring-primary/20 transition-all" 
+                      className="w-full bg-white border border-outline-variant/20 rounded-xl px-2 py-3 text-xs font-bold text-center focus:ring-2 focus:ring-primary/20 transition-all"
                       type="number" step="0.01"
                       value={selectedProduct?.precio_costo || 0}
                       onChange={(e) => setSelectedProduct(prev => ({ ...prev, precio_costo: parseFloat(e.target.value) }))}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-primary block text-center">Minorista</label>
-                    <input 
+                    <label className="text-[8px] font-black uppercase tracking-widest text-primary block text-center">Precio</label>
+                    <input
                       required
-                      className="w-full bg-primary/5 border border-primary/20 rounded-xl px-2 py-3 text-xs font-black text-center text-primary focus:ring-2 focus:ring-primary/20 transition-all" 
+                      className="w-full bg-primary/5 border border-primary/20 rounded-xl px-2 py-3 text-xs font-black text-center text-primary focus:ring-2 focus:ring-primary/20 transition-all"
                       type="number" step="0.01"
                       value={selectedProduct?.precio_minorista || 0}
-                      onChange={(e) => setSelectedProduct(prev => ({ ...prev, precio_minorista: parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[8px] font-black uppercase tracking-widest text-secondary block text-center">Mayorista</label>
-                    <input 
-                      required
-                      className="w-full bg-secondary/5 border border-secondary/20 rounded-xl px-2 py-3 text-xs font-black text-center text-secondary focus:ring-2 focus:ring-secondary/20 transition-all" 
-                      type="number" step="0.01"
-                      value={selectedProduct?.precio_mayorista || 0}
-                      onChange={(e) => setSelectedProduct(prev => ({ ...prev, precio_mayorista: parseFloat(e.target.value) }))}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        setSelectedProduct(prev => ({ ...prev, precio_minorista: value, precio_mayorista: value }));
+                      }}
                     />
                   </div>
                 </div>

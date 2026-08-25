@@ -244,7 +244,6 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
             numero: data.numero,
             subtotal: data.subtotal,
             iva: data.iva,
-            total: data.total,
             estado: data.estado,
             observaciones: data.observaciones,
           })
@@ -266,7 +265,6 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
             numero: data.numero,
             subtotal: data.subtotal,
             iva: data.iva,
-            total: data.total,
             estado: data.estado,
             observaciones: data.observaciones,
           }])

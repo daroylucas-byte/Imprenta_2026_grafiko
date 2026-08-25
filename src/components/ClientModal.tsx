@@ -18,10 +18,8 @@ const SITUACIONES_IVA = [
 ];
 
 const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess }) => {
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm();
+  const { register, handleSubmit, reset, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
-
-  const esMayorista = watch('es_mayorista');
 
   // Fetch client data if editing
   useEffect(() => {
@@ -151,18 +149,6 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess 
                   <option value="Ninguno">Seleccionar...</option>
                   {SITUACIONES_IVA.map(diva => <option key={diva} value={diva}>{diva}</option>)}
                 </select>
-              </div>
-              <div className="space-y-1 flex items-end pb-3">
-                <label className="flex items-center gap-3 cursor-pointer group px-4 py-2 bg-surface-container-low rounded-2xl w-full hover:bg-primary/5 transition-colors">
-                  <div className={`w-10 h-6 rounded-full transition-all relative ${esMayorista ? 'bg-primary' : 'bg-outline-variant/30'}`}>
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${esMayorista ? 'left-5' : 'left-1'}`}></div>
-                  </div>
-                  <input 
-                    type="checkbox" className="hidden"
-                    {...register('es_mayorista')}
-                  />
-                  <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Cliente Mayorista</span>
-                </label>
               </div>
             </div>
           </div>

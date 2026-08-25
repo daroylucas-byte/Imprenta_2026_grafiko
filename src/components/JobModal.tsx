@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
-import { printJobVoucher } from '../utils/printJob';
+import { printJobVoucher, buildJobVoucherDoc } from '../utils/printJob';
+import JobPdfPreviewModal from './JobPdfPreviewModal';
+import type { jsPDF } from 'jspdf';
 
 interface JobModalProps {
   jobId?: string;
@@ -16,6 +18,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   });
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [previewPdf, setPreviewPdf] = useState<{ doc: jsPDF; fileName: string } | null>(null);
 
   // Lookup states
   const [clientes, setClientes] = useState<any[]>([]);
@@ -40,10 +43,11 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
 
+  const [isManualItem, setIsManualItem] = useState(false);
   const [currentItem, setCurrentItem] = useState<any>({
     producto_id: '',
+    nombre: '',
     cantidad: 1,
-    tipo_precio: 'minorista',
     precio_unitario: 0,
     subtotal: 0,
     numeracion_desde: '',
@@ -57,7 +61,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         { data: c }, { data: pList }, { data: s }, { data: si }, { data: t },
         { data: p }, { data: a }, { data: tm }, { data: e }
       ] = await Promise.all([
-        supabase.from('t_clientes').select('id, razon_social, nombre, es_mayorista, activo').order('razon_social'),
+        supabase.from('t_clientes').select('id, razon_social, nombre, activo').order('razon_social'),
         supabase.from('t_productos').select('*').order('nombre'),
         supabase.from('t_conf_soportes').select('id, nombre').order('nombre'),
         supabase.from('t_conf_sistemas_impresion').select('id, nombre').order('nombre'),
@@ -148,7 +152,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       if (iData) {
         setItems(iData.map(item => ({
           ...item,
-          nombre: (item as any).t_productos?.nombre || 'Producto'
+          nombre: item.nombre || (item as any).t_productos?.nombre || 'Producto'
         })));
       }
 
@@ -186,28 +190,17 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     if (currentClienteId && clientes.length > 0) {
       const client = clientes.find(c => c.id === currentClienteId);
       if (client) {
-        setClientSearch(`${client.razon_social} ${client.es_mayorista ? '(M)' : '(m)'}`);
+        setClientSearch(client.razon_social);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientes, jobId]);
 
-  // Handle client selection to default price type
-  const handleClientChange = (clientId: string) => {
-    const client = clientes.find(c => c.id === clientId);
-    if (client) {
-      setCurrentItem((prev: any) => ({
-        ...prev,
-        tipo_precio: client.es_mayorista ? 'mayorista' : 'minorista'
-      }));
-    }
-  };
-
   // Handle product selection
   const handleProductChange = (productId: string) => {
     const product = productos.find(p => p.id === productId);
     if (product) {
-      const price = currentItem.tipo_precio === 'mayorista' ? product.precio_mayorista : product.precio_minorista;
+      const price = product.precio_minorista;
       setCurrentItem((prev: any) => ({
         ...prev,
         producto_id: productId,
@@ -222,21 +215,35 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     setCurrentItem((prev: any) => {
       const next = { ...prev, ...updates };
       // Re-calc subtotal if quantity or unit price changed
-      if (updates.cantidad !== undefined || updates.precio_unitario !== undefined || updates.tipo_precio !== undefined) {
-        if (updates.tipo_precio) {
-          const product = productos.find(p => p.id === next.producto_id);
-          if (product) {
-            next.precio_unitario = updates.tipo_precio === 'mayorista' ? product.precio_mayorista : product.precio_minorista;
-          }
-        }
+      if (updates.cantidad !== undefined || updates.precio_unitario !== undefined) {
         next.subtotal = (parseFloat(next.precio_unitario) || 0) * (parseFloat(next.cantidad) || 0);
       }
       return next;
     });
   };
 
+  const startEditItem = (item: any, index: number) => {
+    setIsManualItem(!item.producto_id);
+    setCurrentItem({
+      producto_id: item.producto_id || '',
+      nombre: item.nombre || '',
+      cantidad: item.cantidad,
+      precio_unitario: item.precio_unitario,
+      subtotal: item.subtotal,
+      numeracion_desde: item.numeracion_desde || '',
+      numeracion_hasta: item.numeracion_hasta || '',
+      fecha_muestra: item.fecha_muestra || ''
+    });
+    removeItem(index);
+  };
+
   const addItem = () => {
-    if (!currentItem.producto_id) {
+    if (isManualItem) {
+      if (!currentItem.nombre || !currentItem.nombre.trim()) {
+        toast.error('Ingrese el nombre del ítem manual');
+        return;
+      }
+    } else if (!currentItem.producto_id) {
       toast.error('Seleccione un producto');
       return;
     }
@@ -244,18 +251,24 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       toast.error('Ingrese una cantidad válida');
       return;
     }
-    const product = productos.find(p => p.id === currentItem.producto_id);
-    setItems(prev => [...prev, { ...currentItem, nombre: product.nombre, product }]);
+    const product = isManualItem ? null : productos.find(p => p.id === currentItem.producto_id);
+    setItems(prev => [...prev, {
+      ...currentItem,
+      producto_id: isManualItem ? null : currentItem.producto_id,
+      nombre: isManualItem ? currentItem.nombre : product?.nombre,
+      product
+    }]);
 
     // Auto-update form total
     const newTotal = items.reduce((sum, item) => sum + item.subtotal, 0) + currentItem.subtotal;
     setValue('total', newTotal);
 
-    // Reset current item (keep type for convenience)
+    // Reset current item
+    setIsManualItem(false);
     setCurrentItem({
       producto_id: '',
+      nombre: '',
       cantidad: 1,
-      tipo_precio: currentItem.tipo_precio,
       precio_unitario: 0,
       subtotal: 0,
       numeracion_desde: '',
@@ -279,11 +292,12 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
     setLoading(true);
     try {
-      const { total, sena, facturado, ...rest } = data;
+      // total se calcula solo en Supabase (trigger sobre t_trabajo_productos) — no se manda.
+      const { total: _total, sena, facturado, ...rest } = data;
       const sanitizedData = Object.entries(rest).reduce((acc: any, [key, value]) => {
         acc[key] = value === "" ? null : value;
         return acc;
-      }, { total, sena });
+      }, { sena });
 
       // Handle business rules for approval
       if (jobId) {
@@ -304,11 +318,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         if (items.length > 0) {
           const itemRows = items.map(item => ({
             trabajo_id: jobId,
-            producto_id: item.producto_id,
+            producto_id: item.producto_id || null,
+            nombre: item.producto_id ? null : item.nombre,
             cantidad: item.cantidad,
-            tipo_precio: item.tipo_precio,
             precio_unitario: item.precio_unitario,
-            subtotal: item.subtotal,
             numeracion_desde: item.numeracion_desde || null,
             numeracion_hasta: item.numeracion_hasta || null,
             fecha_muestra: item.fecha_muestra || null
@@ -348,11 +361,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         if (items.length > 0) {
           const itemRows = items.map(item => ({
             trabajo_id: job.id,
-            producto_id: item.producto_id,
+            producto_id: item.producto_id || null,
+            nombre: item.producto_id ? null : item.nombre,
             cantidad: item.cantidad,
-            tipo_precio: item.tipo_precio,
             precio_unitario: item.precio_unitario,
-            subtotal: item.subtotal,
             numeracion_desde: item.numeracion_desde || null,
             numeracion_hasta: item.numeracion_hasta || null,
             fecha_muestra: item.fecha_muestra || null
@@ -360,6 +372,15 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
           const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
           if (itemsErr) throw itemsErr;
+        }
+
+        // Trabajo nuevo creado como presupuesto: mostrar vista previa del PDF
+        // en vez de cerrar el modal directamente (el usuario elige si lo descarga).
+        if ((data.estado || 'PRESUPUESTADO') === 'PRESUPUESTADO') {
+          toast.success('Trabajo creado con éxito');
+          const { doc, fileName } = await buildJobVoucherDoc(job.id);
+          setPreviewPdf({ doc, fileName });
+          return;
         }
       }
 
@@ -373,68 +394,28 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     }
   };
 
+  const handleClosePreview = () => {
+    setPreviewPdf(null);
+    onSuccess();
+    onClose();
+  };
+
   const applyClientCredit = async () => {
     if (!jobId || clientCredit <= 0) return;
 
     setApplyingCredit(true);
     try {
-      // 1. Fetch receipts and their applications separately
-      const { data: receipts, error: rErr } = await supabase
-        .from('t_recibos')
-        .select('id, total')
-        .eq('cliente_id', watch('cliente_id'));
+      const { data, error } = await supabase.rpc('aplicar_credito_a_trabajos', {
+        p_cliente_id: watch('cliente_id'),
+        p_trabajo_id: jobId
+      });
+      if (error) throw error;
 
-      if (rErr) throw rErr;
-
-      const { data: apps, error: aErr } = await supabase
-        .from('t_recibo_trabajos')
-        .select('recibo_id, monto_aplicado')
-        .in('recibo_id', receipts.map(r => r.id));
-
-      if (aErr) throw aErr;
-
-      // Map applications to receipts
-      const usedByReceipt = (apps || []).reduce((acc: any, curr) => {
-        acc[curr.recibo_id] = (acc[curr.recibo_id] || 0) + Number(curr.monto_aplicado);
-        return acc;
-      }, {});
-
-      // 2. Calculate remaining debt for this job
-      const debt = Number(saldoData?.saldo_pendiente) || 0;
-      if (debt <= 0) {
-        toast.error('El trabajo ya está saldado');
-        return;
-      }
-
-      let remainingDebt = debt;
-      const applications = [];
-
-      // 3. Match credit from receipts to this job (FIFO)
-      for (const r of (receipts || [])) {
-        if (remainingDebt <= 0) break;
-
-        const alreadyUsed = usedByReceipt[r.id] || 0;
-        const available = Number(r.total) - alreadyUsed;
-
-        if (available > 0) {
-          const toApply = Math.min(available, remainingDebt);
-          applications.push({
-            recibo_id: r.id,
-            trabajo_id: jobId,
-            monto_aplicado: toApply
-          });
-          remainingDebt -= toApply;
-        }
-      }
-
-      if (applications.length === 0) {
+      const aplicaciones = data?.[0]?.aplicaciones_creadas || 0;
+      if (aplicaciones === 0) {
         toast.error('No se encontró crédito real disponible');
         return;
       }
-
-      // 4. Save applications
-      const { error: appErr } = await supabase.from('t_recibo_trabajos').insert(applications);
-      if (appErr) throw appErr;
 
       toast.success('Crédito aplicado correctamente');
       fetchJobDetails(); // Refresh financial data
@@ -468,6 +449,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500">
         {/* Header */}
@@ -599,13 +581,12 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             key={c.id}
                             onMouseDown={() => {
                               setValue('cliente_id', c.id, { shouldValidate: true });
-                              setClientSearch(`${c.razon_social} ${c.es_mayorista ? '(M)' : '(m)'}`);
+                              setClientSearch(c.razon_social);
                               setIsClientDropdownOpen(false);
-                              handleClientChange(c.id);
                             }}
                             className="w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-primary/5 transition-colors"
                           >
-                            {c.razon_social} {c.es_mayorista ? '(M)' : '(m)'}{c.activo === false ? ' (Inactivo)' : ''}
+                            {c.razon_social}{c.activo === false ? ' (Inactivo)' : ''}
                           </button>
                         ))}
                       {clientes
@@ -703,17 +684,42 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
 
               {/* Add Product Sub-form */}
               <div className="bg-surface-container-lowest p-6 rounded-[2rem] border border-outline-variant/10 space-y-6 shadow-sm">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsManualItem(!isManualItem);
+                      setCurrentItem((prev: any) => ({ ...prev, producto_id: '', nombre: '', precio_unitario: 0, subtotal: 0 }));
+                    }}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${isManualItem ? 'bg-primary text-white' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
+                  >
+                    <span className="material-symbols-outlined text-sm">{isManualItem ? 'inventory_2' : 'edit_note'}</span>
+                    {isManualItem ? 'Elegir del catálogo' : 'Ítem manual'}
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                   <div className="md:col-span-5 space-y-1">
-                    <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Seleccionar Producto</label>
-                    <select
-                      value={currentItem.producto_id}
-                      onChange={(e) => handleProductChange(e.target.value)}
-                      className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
-                    >
-                      <option value="">Buscar producto...</option>
-                      {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                    </select>
+                    <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
+                      {isManualItem ? 'Nombre del Ítem' : 'Seleccionar Producto'}
+                    </label>
+                    {isManualItem ? (
+                      <input
+                        type="text"
+                        value={currentItem.nombre}
+                        onChange={(e) => updateCurrentItem({ nombre: e.target.value })}
+                        placeholder="Ej: Tarjetas personalizadas"
+                        className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20"
+                      />
+                    ) : (
+                      <select
+                        value={currentItem.producto_id}
+                        onChange={(e) => handleProductChange(e.target.value)}
+                        className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
+                      >
+                        <option value="">Buscar producto...</option>
+                        {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </select>
+                    )}
                   </div>
                   <div className="md:col-span-2 space-y-1">
                     <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
@@ -730,23 +736,13 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </div>
                   <div className="md:col-span-3 space-y-1">
                     <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Precio Unit.</label>
-                    <div className="flex bg-surface-container-low rounded-xl overflow-hidden">
-                      <select
-                        value={currentItem.tipo_precio}
-                        onChange={(e) => updateCurrentItem({ tipo_precio: e.target.value })}
-                        className="bg-primary/10 border-none py-2.5 px-2 text-[10px] font-black uppercase text-primary focus:ring-0 appearance-none cursor-pointer"
-                      >
-                        <option value="minorista">Min</option>
-                        <option value="mayorista">May</option>
-                      </select>
-                      <input
-                        type="number"
-                        value={currentItem.precio_unitario}
-                        onChange={(e) => updateCurrentItem({ precio_unitario: e.target.value === '' ? '' : parseFloat(e.target.value) })}
-                        placeholder="0.00"
-                        className="w-full bg-transparent border-none py-2.5 px-3 text-sm font-black focus:ring-0"
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      value={currentItem.precio_unitario}
+                      onChange={(e) => updateCurrentItem({ precio_unitario: e.target.value === '' ? '' : parseFloat(e.target.value) })}
+                      placeholder="0.00"
+                      className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-black focus:ring-2 focus:ring-primary/20"
+                    />
                   </div>
                   <div className="md:col-span-2">
                     <button
@@ -824,7 +820,9 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                         <tr key={idx} className="text-xs font-bold text-on-surface">
                           <td className="px-6 py-4">
                             <p>{item.nombre}</p>
-                            <p className="text-[8px] uppercase text-outline">{item.tipo_precio}</p>
+                            {!item.producto_id && (
+                              <p className="text-[8px] uppercase text-outline">Ítem manual</p>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-center">
                             {item.cantidad}
@@ -848,13 +846,24 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(idx)}
-                              className="text-error hover:scale-125 transition-transform"
-                            >
-                              <span className="material-symbols-outlined text-[18px]">delete_forever</span>
-                            </button>
+                            <div className="flex items-center justify-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => startEditItem(item, idx)}
+                                title="Editar cantidad/precio"
+                                className="text-primary hover:scale-125 transition-transform"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeItem(idx)}
+                                title="Eliminar ítem"
+                                className="text-error hover:scale-125 transition-transform"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">delete_forever</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -926,7 +935,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
             <hr className="border-outline-variant/10" />
 
             {/* Section: Financials & Payments */}
-            {jobId && (
+            {jobId && (() => {
+              // Total y saldo en vivo, calculados sobre los ítems del formulario (no lo
+              // guardado en la base) para que se vean reflejados los cambios antes de guardar.
+              const liveTotal = items.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+              const totalPagado = (Number(saldoData?.total_pagado_directo) || 0) + (Number(saldoData?.total_aplicado_cc) || 0);
+              const liveSaldoPendiente = liveTotal - totalPagado;
+
+              return (
               <div className="space-y-8 animate-in fade-in duration-500">
                 <hr className="border-outline-variant/10" />
                 <div className="flex items-center justify-between">
@@ -943,10 +959,10 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                       <span className="material-symbols-outlined text-sm">print</span>
                       Imprimir
                     </button>
-                    {saldoData?.saldo_pendiente > 0 && (
+                    {liveSaldoPendiente > 0 && (
                       <span className="px-3 py-1 bg-error/10 text-error rounded-full text-[10px] font-black uppercase tracking-tighter">Deuda Pendiente</span>
                     )}
-                    {saldoData?.saldo_pendiente <= 0 && saldoData?.total > 0 && (
+                    {liveSaldoPendiente <= 0 && liveTotal > 0 && (
                       <span className="px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-tighter">Saldado</span>
                     )}
                   </div>
@@ -955,7 +971,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="p-5 bg-surface-container-low rounded-3xl border border-outline-variant/5">
                     <p className="text-[9px] font-black text-outline uppercase tracking-widest mb-1">Presupuesto Total</p>
-                    <p className="text-xl font-black text-on-surface">$ {(Number(saldoData?.total) || 0).toLocaleString('es-AR')}</p>
+                    <p className="text-xl font-black text-on-surface">$ {liveTotal.toLocaleString('es-AR')}</p>
                   </div>
                   <div className="p-5 bg-emerald-50/50 rounded-3xl border border-emerald-100/50">
                     <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1">Pagos Directos</p>
@@ -966,7 +982,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                       <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-1">Aplicado de CC</p>
                       <p className="text-xl font-black text-indigo-700">$ {(Number(saldoData?.total_aplicado_cc) || 0).toLocaleString('es-AR')}</p>
                     </div>
-                    {clientCredit > 0 && (Number(saldoData?.saldo_pendiente) || 0) > 0 && (
+                    {clientCredit > 0 && liveSaldoPendiente > 0 && (
                       <button
                         type="button"
                         onClick={applyClientCredit}
@@ -978,9 +994,9 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                       </button>
                     )}
                   </div>
-                  <div className={`p-5 rounded-3xl border shadow-sm ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'bg-error/5 border-error/20' : 'bg-slate-50 border-outline-variant/10'}`}>
-                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'text-error' : 'text-outline'}`}>Saldo Restante</p>
-                    <p className={`text-xl font-black ${(Number(saldoData?.saldo_pendiente) || 0) > 0 ? 'text-error' : 'text-on-surface'}`}>$ {(Number(saldoData?.saldo_pendiente) || 0).toLocaleString('es-AR')}</p>
+                  <div className={`p-5 rounded-3xl border shadow-sm ${liveSaldoPendiente > 0 ? 'bg-error/5 border-error/20' : 'bg-slate-50 border-outline-variant/10'}`}>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${liveSaldoPendiente > 0 ? 'text-error' : 'text-outline'}`}>Saldo Restante</p>
+                    <p className={`text-xl font-black ${liveSaldoPendiente > 0 ? 'text-error' : 'text-on-surface'}`}>$ {liveSaldoPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
                   </div>
                 </div>
 
@@ -1024,6 +1040,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             <option value="TRANSFERENCIA">TRANSFERENCIA</option>
                             <option value="CHEQUE">CHEQUE</option>
                             <option value="MERCADO PAGO">MERCADO PAGO</option>
+                            <option value="BANCO">BANCO</option>
                             <option value="OTRO">OTRO</option>
                           </select>
                         </div>
@@ -1072,7 +1089,12 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                                 {p.tipo}
                               </span>
                             </td>
-                            <td className="px-4 py-4 uppercase text-outline text-[9px]">{p.tipo_pago}</td>
+                            <td className="px-4 py-4">
+                              <p className="uppercase text-outline text-[9px]">{p.tipo_pago}</p>
+                              {p.observaciones && (
+                                <p className="text-[9px] text-primary font-medium normal-case mt-0.5">{p.observaciones}</p>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-right font-black text-on-surface">$ {(Number(p.importe) || 0).toLocaleString('es-AR')}</td>
                           </tr>
                         ))}
@@ -1086,7 +1108,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {!jobId && (
               <div className="space-y-6">
@@ -1149,6 +1172,15 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         </div>
       </div>
     </div>
+
+    {previewPdf && (
+      <JobPdfPreviewModal
+        doc={previewPdf.doc}
+        fileName={previewPdf.fileName}
+        onClose={handleClosePreview}
+      />
+    )}
+    </>
   );
 };
 

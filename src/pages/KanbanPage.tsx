@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import JobModal from '../components/JobModal';
 import BillingModal from '../components/BillingModal';
-import PaymentModal from '../components/PaymentModal';
+import JobCompletionPaymentModal from '../components/JobCompletionPaymentModal';
 import { printJobVoucher } from '../utils/printJob';
 
 interface Job {
@@ -40,8 +40,6 @@ const KanbanPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [paymentClient, setPaymentClient] = useState<{ id: string; razon_social: string } | null>(null);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('table');
@@ -49,6 +47,7 @@ const KanbanPage: React.FC = () => {
   const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'due_soon' | 'overdue'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [completionPayment, setCompletionPayment] = useState<{ job: Job; targetStatus: string } | null>(null);
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -57,6 +56,7 @@ const KanbanPage: React.FC = () => {
       const { data, error } = await supabase
         .from('v_saldo_trabajos')
         .select('*')
+        .neq('estado', 'ANULADO')
         .order('fecha_aprobacion', { ascending: false });
 
       if (error) throw error;
@@ -72,26 +72,29 @@ const KanbanPage: React.FC = () => {
     fetchJobs();
   }, [fetchJobs]);
 
-  const handleMoveJob = async (job: Job, newStatus: string) => {
-    const id = job.id;
+  // Aplica el cambio de estado en la base. Separado de handleMoveJob para poder
+  // llamarlo recién después de confirmar el cobro obligatorio (ver JobCompletionPaymentModal).
+  const applyStatusUpdate = async (job: Job, newStatus: string) => {
     try {
+      const id = job.id;
       const updateData: any = { estado: newStatus };
 
-      // Handle timestamps for forward moves
-      const approvalStatuses = ['APROBADO', 'EN PRODUCCIÓN', 'LISTO PARA ENTREGAR', 'ENTREGADOS'];
+      // Handle timestamps for forward moves (nombres de estado reales: PRESUPUESTADO,
+      // APROBADO, EN PRODUCCIÓN, TERMINADO, ENTREGADO — ver `columns` más abajo)
+      const approvalStatuses = ['APROBADO', 'EN PRODUCCIÓN', 'TERMINADO', 'ENTREGADO'];
       if (approvalStatuses.includes(newStatus) && !updateData.fecha_aprobacion) {
         // We set it only if it wasn't set before
         updateData.fecha_aprobacion = new Date().toISOString().split('T')[0];
       }
       if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_pase_produccion = new Date().toISOString();
-      if (newStatus === 'LISTO PARA ENTREGAR') updateData.fecha_prod_fin = new Date().toISOString();
-      if (newStatus === 'ENTREGADOS') updateData.fecha_entregado = new Date().toISOString();
+      if (newStatus === 'TERMINADO') updateData.fecha_prod_fin = new Date().toISOString();
+      if (newStatus === 'ENTREGADO') updateData.fecha_entregado = new Date().toISOString();
 
       // Clear timestamps for backward moves
       if (newStatus === 'PRESUPUESTADO') updateData.fecha_aprobacion = null;
       if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_prod_fin = null;
-      if (newStatus === 'LISTO PARA ENTREGAR') {
-        // If we are coming back from ENTREGADOS, we should clear fecha_entregado
+      if (newStatus === 'TERMINADO') {
+        // If we are coming back from ENTREGADO, we should clear fecha_entregado
         updateData.fecha_entregado = null;
       }
 
@@ -103,20 +106,42 @@ const KanbanPage: React.FC = () => {
       if (error) throw error;
       toast.success(`Trabajo movido a ${newStatus.toLowerCase()}`);
       fetchJobs();
-
-      // Si el trabajo se entrega con saldo pendiente, ofrecer cobrar en el momento.
-      // El cobro es opcional: el trabajo ya quedó ENTREGADO más arriba, cancelar
-      // el modal no revierte el estado.
-      if (newStatus === 'ENTREGADO' && Number(job.saldo_pendiente || 0) > 0) {
-        const clienteId = (job as any).cliente_id;
-        const clienteNombre = (job as any).cliente_nombre;
-        if (clienteId) {
-          setPaymentClient({ id: clienteId, razon_social: clienteNombre || 'Cliente' });
-          setIsPaymentModalOpen(true);
-        }
-      }
     } catch (error: any) {
       toast.error('Error al mover trabajo: ' + error.message);
+    }
+  };
+
+  const handleMoveJob = async (job: Job, newStatus: string) => {
+    // Al pasar a TERMINADO o ENTREGADO con saldo pendiente, es obligatorio
+    // registrar el cobro (parcial o total) antes de que el estado avance.
+    if (['TERMINADO', 'ENTREGADO'].includes(newStatus) && Number(job.saldo_pendiente || 0) > 0) {
+      setCompletionPayment({ job, targetStatus: newStatus });
+      return;
+    }
+    await applyStatusUpdate(job, newStatus);
+  };
+
+  const handleCompletionConfirmed = async () => {
+    if (!completionPayment) return;
+    const { job, targetStatus } = completionPayment;
+    setCompletionPayment(null);
+    await applyStatusUpdate(job, targetStatus);
+  };
+
+  const handleDeleteJob = async (job: Job) => {
+    const hasMoney = Number(job.saldo_pendiente) < Number(job.total) || job.facturado;
+    const message = hasMoney
+      ? `Este trabajo ya tiene pagos y/o facturación registrada. ¿Seguro que querés eliminarlo? Va a dejar de verse en el listado pero su historial de pagos se conserva.`
+      : '¿Eliminar este trabajo?';
+    if (!confirm(message)) return;
+
+    try {
+      const { error } = await supabase.from('t_trabajos').update({ estado: 'ANULADO' }).eq('id', job.id);
+      if (error) throw error;
+      toast.success('Trabajo eliminado');
+      fetchJobs();
+    } catch (error: any) {
+      toast.error('Error al eliminar: ' + error.message);
     }
   };
 
@@ -125,6 +150,7 @@ const KanbanPage: React.FC = () => {
       title: 'PRESUPUESTADO',
       status: 'PRESUPUESTADO',
       color: 'bg-slate-400',
+      badgeClasses: 'bg-slate-400/10 text-slate-700',
       next: 'APROBADO',
       prev: null,
       label: 'Aprobar'
@@ -133,6 +159,7 @@ const KanbanPage: React.FC = () => {
       title: 'APROBADO',
       status: 'APROBADO',
       color: 'bg-indigo-400',
+      badgeClasses: 'bg-indigo-400/10 text-indigo-700',
       next: 'EN PRODUCCIÓN',
       prev: 'PRESUPUESTADO',
       label: 'Producir'
@@ -141,6 +168,7 @@ const KanbanPage: React.FC = () => {
       title: 'EN PRODUCCIÓN',
       status: 'EN PRODUCCIÓN',
       color: 'bg-blue-500',
+      badgeClasses: 'bg-blue-500/10 text-blue-700',
       next: 'TERMINADO',
       prev: 'APROBADO',
       label: 'Finalizar'
@@ -149,6 +177,7 @@ const KanbanPage: React.FC = () => {
       title: 'TERMINADO',
       status: 'TERMINADO',
       color: 'bg-amber-500',
+      badgeClasses: 'bg-amber-500/10 text-amber-700',
       next: 'ENTREGADO',
       prev: 'EN PRODUCCIÓN',
       label: 'Entregar'
@@ -157,6 +186,7 @@ const KanbanPage: React.FC = () => {
       title: 'ENTREGADO',
       status: 'ENTREGADO',
       color: 'bg-emerald-500',
+      badgeClasses: 'bg-emerald-500/10 text-emerald-700',
       next: null,
       prev: 'TERMINADO',
       label: ''
@@ -365,6 +395,16 @@ const KanbanPage: React.FC = () => {
                           >
                             <span className="material-symbols-outlined text-[18px]">edit</span>
                           </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteJob(job);
+                            }}
+                            className="p-1 hover:bg-error/10 text-outline hover:text-error rounded-md transition-all"
+                            title="Eliminar trabajo"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                          </button>
                           <span className="text-[10px] font-bold text-outline uppercase tracking-wider">
                             #{job.id.slice(0, 5)}
                           </span>
@@ -414,7 +454,7 @@ const KanbanPage: React.FC = () => {
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2 text-on-surface-variant">
                             <span className="material-symbols-outlined text-lg">calendar_today</span>
-                            <span className="text-[10px] font-bold">{job.fecha_entrega || 'S/D'}</span>
+                            <span className="text-[10px] font-bold">{job.fecha_entrega ? job.fecha_entrega.split('-').reverse().join('/') : 'S/D'}</span>
                           </div>
                           {job.estado !== 'ENTREGADOS' && getDueDateStatus(job.fecha_entrega) && (
                             <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full w-fit tracking-tighter shadow-sm
@@ -567,7 +607,7 @@ const KanbanPage: React.FC = () => {
                           )}
                         </td>
                         <td className="px-6 py-5 text-center">
-                          <p className="text-sm font-medium">{job.fecha_entrega || '---'}</p>
+                          <p className="text-sm font-medium">{job.fecha_entrega ? job.fecha_entrega.split('-').reverse().join('/') : '---'}</p>
                           {job.estado !== 'ENTREGADO' && getDueDateStatus(job.fecha_entrega) && (
                             <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full inline-block mt-1
                              ${getDueDateStatus(job.fecha_entrega) === 'OVERDUE' ? 'bg-error text-white' : 'bg-amber-500 text-white'}`}>
@@ -576,7 +616,7 @@ const KanbanPage: React.FC = () => {
                           )}
                         </td>
                         <td className="px-6 py-5 text-center">
-                          <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider ${col.color.replace('bg-', 'bg-').replace('-500', '/10')} ${col.color.replace('bg-', 'text-').replace('-500', '-700')}`}>
+                          <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider ${col.badgeClasses}`}>
                             {currentStatus}
                           </span>
                         </td>
@@ -639,6 +679,15 @@ const KanbanPage: React.FC = () => {
                                 </span>
                               </button>
                             )}
+
+                            {/* Delete Action */}
+                            <button
+                              onClick={() => handleDeleteJob(job)}
+                              title="Eliminar trabajo"
+                              className="p-2 hover:bg-error/10 text-error/60 hover:text-error rounded-lg transition-all"
+                            >
+                              <span className="material-symbols-outlined text-lg">delete</span>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -675,15 +724,13 @@ const KanbanPage: React.FC = () => {
         />
       )}
 
-      {/* Payment Modal - se abre al entregar un trabajo con saldo pendiente */}
-      {isPaymentModalOpen && paymentClient && (
-        <PaymentModal
-          client={paymentClient}
-          onClose={() => {
-            setIsPaymentModalOpen(false);
-            setPaymentClient(null);
-          }}
-          onSuccess={fetchJobs}
+      {/* Cobro obligatorio al pasar a TERMINADO/ENTREGADO con saldo pendiente */}
+      {completionPayment && (
+        <JobCompletionPaymentModal
+          job={completionPayment.job as any}
+          targetStatus={completionPayment.targetStatus}
+          onClose={() => setCompletionPayment(null)}
+          onConfirmed={handleCompletionConfirmed}
         />
       )}
     </div>
