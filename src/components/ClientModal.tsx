@@ -20,6 +20,20 @@ const SITUACIONES_IVA = [
 const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess }) => {
   const { register, handleSubmit, reset, formState: { errors } } = useForm();
   const [loading, setLoading] = useState(false);
+  const [rubros, setRubros] = useState<{ id: string; nombre: string }[]>([]);
+
+  // Fetch rubros de cliente para el dropdown
+  useEffect(() => {
+    const fetchRubros = async () => {
+      const { data, error } = await supabase.from('t_conf_rubros_cliente').select('id, nombre').order('nombre');
+      if (error) {
+        toast.error('Error al cargar rubros: ' + error.message);
+        return;
+      }
+      setRubros(data || []);
+    };
+    fetchRubros();
+  }, []);
 
   // Fetch client data if editing
   useEffect(() => {
@@ -217,7 +231,13 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess 
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Rubro</label>
-                <input {...register('rubro')} className="w-full bg-surface-container-low border-none rounded-2xl py-3.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20" />
+                <select
+                  {...register('rubro_id')}
+                  className="w-full bg-surface-container-low border-none rounded-2xl py-3.5 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer"
+                >
+                  <option value="">Seleccionar...</option>
+                  {rubros.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+                </select>
               </div>
             </div>
             <div className="space-y-1">

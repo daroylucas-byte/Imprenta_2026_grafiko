@@ -53,6 +53,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
         .select('*')
         .eq('cliente_id', client.id)
         .gt('saldo_pendiente', 0)
+        .filter('estado', 'not.in', '(CANCELADO,ANULADO)')
         .order('fecha_aprobacion', { ascending: true });
       setPendingJobs(pJobs || []);
 

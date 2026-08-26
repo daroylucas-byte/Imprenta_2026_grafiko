@@ -56,7 +56,7 @@ const KanbanPage: React.FC = () => {
       const { data, error } = await supabase
         .from('v_saldo_trabajos')
         .select('*')
-        .neq('estado', 'ANULADO')
+        .filter('estado', 'not.in', '(CANCELADO,ANULADO)')
         .order('fecha_aprobacion', { ascending: false });
 
       if (error) throw error;
@@ -129,11 +129,16 @@ const KanbanPage: React.FC = () => {
   };
 
   const handleDeleteJob = async (job: Job) => {
-    const hasMoney = Number(job.saldo_pendiente) < Number(job.total) || job.facturado;
-    const message = hasMoney
-      ? `Este trabajo ya tiene pagos y/o facturación registrada. ¿Seguro que querés eliminarlo? Va a dejar de verse en el listado pero su historial de pagos se conserva.`
-      : '¿Eliminar este trabajo?';
-    if (!confirm(message)) return;
+    if (job.estado === 'ENTREGADO') {
+      toast.error('No se puede eliminar un trabajo ya ENTREGADO.');
+      return;
+    }
+    const tienePagos = Number(job.saldo_pendiente) < Number(job.total);
+    if (tienePagos || job.facturado) {
+      toast.error('No se puede eliminar un trabajo con pagos registrados y/o facturado. Revertí el pago o la factura primero si necesitás corregirlo.');
+      return;
+    }
+    if (!confirm('¿Eliminar este trabajo?')) return;
 
     try {
       const { error } = await supabase.from('t_trabajos').update({ estado: 'ANULADO' }).eq('id', job.id);
