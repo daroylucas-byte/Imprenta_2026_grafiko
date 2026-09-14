@@ -128,6 +128,13 @@ interface CerrarCajaModalProps {
 
 const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
+  const { user } = useAuthStore();
+  const [step, setStep] = useState<'arqueo' | 'retiro'>('arqueo');
+  const [quiereRetirar, setQuiereRetirar] = useState<boolean | null>(null);
+  const [montoRetiro, setMontoRetiro] = useState('');
+  const [metodoRetiro, setMetodoRetiro] = useState('Efectivo');
+  const [motivoRetiro, setMotivoRetiro] = useState('');
+
   const { register, handleSubmit, watch, formState: { errors } } = useForm({
     defaultValues: {
       saldo_cierre: openCaja.saldo_actual.toFixed(2),
@@ -138,21 +145,25 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
   const systemSaldo = openCaja.saldo_actual;
   const countedSaldo = Number(saldoCierreValue || 0);
   const difference = countedSaldo - systemSaldo;
+  const montoRetiroNum = Number(montoRetiro || 0);
+  const retiroInvalido = montoRetiroNum <= 0 || montoRetiroNum > countedSaldo || !motivoRetiro.trim();
 
-  const onSubmit = async (data: any) => {
+  const finalizarCierre = async (retiro: number) => {
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('t_aperturas_caja')
-        .update({
-          fecha_cierre: new Date().toISOString().split('T')[0],
-          saldo_cierre: Number(data.saldo_cierre)
-        })
-        .eq('id', openCaja.apertura_caja_id);
+      const { data, error } = await supabase.rpc('cerrar_y_reabrir_caja', {
+        p_apertura_id: openCaja.apertura_caja_id,
+        p_saldo_contado: countedSaldo,
+        p_monto_retiro: retiro,
+        p_metodo_retiro: retiro > 0 ? metodoRetiro : null,
+        p_motivo_retiro: retiro > 0 ? motivoRetiro : null,
+        p_usuario_id: user?.id || null
+      });
 
       if (error) throw error;
 
-      toast.success('Caja cerrada correctamente');
+      const nuevoSaldo = Number(data?.[0]?.saldo_inicio_nuevo ?? countedSaldo - retiro);
+      toast.success(`Turno cerrado. Caja reabierta con $${nuevoSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -168,72 +179,179 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
       <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500">
         <div className="px-10 py-8 border-b border-outline-variant/10 flex justify-between items-center bg-slate-50">
           <div>
-            <h3 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">Cierre de Caja</h3>
-            <p className="text-[10px] font-black text-outline uppercase tracking-widest mt-1">Arqueo físico de fondos</p>
+            <h3 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">
+              {step === 'arqueo' ? 'Cierre de Caja' : 'Retiro antes de reabrir'}
+            </h3>
+            <p className="text-[10px] font-black text-outline uppercase tracking-widest mt-1">
+              {step === 'arqueo' ? 'Arqueo físico de fondos' : 'La caja se reabre automáticamente'}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-all">
             <span className="material-symbols-outlined text-2xl">close</span>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-10 space-y-6">
-          <div className="bg-slate-50 p-6 rounded-2xl border border-outline-variant/10 space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo del Sistema:</span>
-              <span className="text-sm font-black text-on-surface">
-                ${systemSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-              </span>
+        {step === 'arqueo' ? (
+          <form onSubmit={handleSubmit(() => setStep('retiro'))} className="p-10 space-y-6">
+            <div className="bg-slate-50 p-6 rounded-2xl border border-outline-variant/10 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo del Sistema:</span>
+                <span className="text-sm font-black text-on-surface">
+                  ${systemSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo Contado:</span>
+                <span className="text-sm font-black text-primary">
+                  ${countedSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-outline-variant/5 flex justify-between items-center">
+                <span className="text-xs font-black uppercase tracking-widest text-on-surface">Diferencia:</span>
+                <span className={`text-sm font-black ${difference > 0.005 ? 'text-emerald-600' : difference < -0.005 ? 'text-error' : 'text-on-surface-variant'}`}>
+                  {difference > 0.005 ? `+ $${difference.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (Sobrante)` :
+                   difference < -0.005 ? `- $${Math.abs(difference).toLocaleString('es-AR', { minimumFractionDigits: 2 })} (Faltante)` :
+                   'Sin diferencia'}
+                </span>
+              </div>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo Contado:</span>
-              <span className="text-sm font-black text-primary">
-                ${countedSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="pt-2 border-t border-outline-variant/5 flex justify-between items-center">
-              <span className="text-xs font-black uppercase tracking-widest text-on-surface">Diferencia:</span>
-              <span className={`text-sm font-black ${difference > 0.005 ? 'text-emerald-600' : difference < -0.005 ? 'text-error' : 'text-on-surface-variant'}`}>
-                {difference > 0.005 ? `+ $${difference.toLocaleString('es-AR', { minimumFractionDigits: 2 })} (Sobrante)` : 
-                 difference < -0.005 ? `- $${Math.abs(difference).toLocaleString('es-AR', { minimumFractionDigits: 2 })} (Faltante)` : 
-                 'Sin diferencia'}
-              </span>
-            </div>
-          </div>
 
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto Físico Contado ($)</label>
-            <input 
-              type="number" step="0.01" autoFocus
-              {...register('saldo_cierre', { required: true, min: 0 })}
-              className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-2xl font-black text-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
-            />
-            {errors.saldo_cierre && <p className="text-[10px] text-error font-bold mt-1 ml-1">Ingresa un monto de cierre válido</p>}
-          </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto Físico Contado ($)</label>
+              <input
+                type="number" step="0.01" autoFocus
+                {...register('saldo_cierre', { required: true, min: 0 })}
+                className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-2xl font-black text-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+              />
+              {errors.saldo_cierre && <p className="text-[10px] text-error font-bold mt-1 ml-1">Ingresa un monto de cierre válido</p>}
+            </div>
 
-          <div className="flex gap-4 pt-4">
-            <button 
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-4 bg-white text-on-surface-variant font-bold rounded-2xl hover:bg-slate-100 transition-all border border-outline-variant/20 text-[10px] uppercase tracking-widest"
-            >
-              Cancelar
-            </button>
-            <button 
-              disabled={loading}
-              type="submit"
-              className="flex-[2] py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-primary transition-all active:scale-95 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest"
-            >
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[1.2rem]">lock</span>
-                  <span>Confirmar Cierre</span>
-                </>
-              )}
-            </button>
+            <div className="flex gap-4 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-4 bg-white text-on-surface-variant font-bold rounded-2xl hover:bg-slate-100 transition-all border border-outline-variant/20 text-[10px] uppercase tracking-widest"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-[2] py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-primary transition-all active:scale-95 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest"
+              >
+                <span className="material-symbols-outlined text-[1.2rem]">arrow_forward</span>
+                <span>Continuar</span>
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-10 space-y-6">
+            <div className="bg-slate-50 p-5 rounded-2xl border border-outline-variant/10 flex justify-between items-center">
+              <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Arqueo confirmado:</span>
+              <span className="text-lg font-black text-primary">${countedSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+            </div>
+
+            {quiereRetirar !== true ? (
+              <div className="space-y-4">
+                <p className="text-sm font-bold text-on-surface text-center">¿Necesitás retirar dinero antes de reabrir la caja?</p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => finalizarCierre(0)}
+                    className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-primary transition-all active:scale-95 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-[1.2rem]">lock_open</span>
+                        <span>No, reabrir con ${countedSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setQuiereRetirar(true)}
+                    className="w-full py-4 bg-error text-white font-bold rounded-2xl shadow-xl shadow-error/20 hover:brightness-110 transition-all active:scale-95 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest"
+                  >
+                    <span className="material-symbols-outlined text-[1.2rem]">trending_down</span>
+                    <span>Sí, retirar dinero</span>
+                  </button>
+                </div>
+                <button type="button" onClick={() => setStep('arqueo')} className="w-full text-center text-[10px] font-bold text-outline uppercase tracking-widest hover:text-primary transition-colors">
+                  Volver a contar
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto a Retirar ($)</label>
+                  <input
+                    type="number" step="0.01" autoFocus
+                    value={montoRetiro}
+                    onChange={(e) => setMontoRetiro(e.target.value)}
+                    placeholder="0.00"
+                    max={countedSaldo}
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-2xl font-black text-error focus:ring-2 focus:ring-error/20 transition-all shadow-inner"
+                  />
+                  {montoRetiroNum > countedSaldo && <p className="text-[10px] text-error font-bold mt-1 ml-1">No podés retirar más de lo contado en el arqueo</p>}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio de Retiro</label>
+                  <select
+                    value={metodoRetiro}
+                    onChange={(e) => setMetodoRetiro(e.target.value)}
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
+                  >
+                    <option>Efectivo</option>
+                    <option>Transferencia</option>
+                    <option>Cheque</option>
+                    <option>Mercado Pago</option>
+                    <option>Otro</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Motivo del Retiro</label>
+                  <textarea
+                    value={motivoRetiro}
+                    onChange={(e) => setMotivoRetiro(e.target.value)}
+                    rows={2}
+                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 resize-none"
+                    placeholder="Ej: Depósito bancario, pago a proveedor..."
+                  />
+                </div>
+
+                <div className="flex gap-4 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuiereRetirar(null)}
+                    className="flex-1 py-4 bg-white text-on-surface-variant font-bold rounded-2xl hover:bg-slate-100 transition-all border border-outline-variant/20 text-[10px] uppercase tracking-widest"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading || retiroInvalido}
+                    onClick={() => finalizarCierre(montoRetiroNum)}
+                    className="flex-[2] py-4 bg-error text-white font-bold rounded-2xl shadow-xl shadow-error/20 hover:brightness-110 transition-all active:scale-95 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-[1.2rem]">lock_open</span>
+                        <span>Confirmar Retiro y Reabrir</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </form>
+        )}
       </div>
     </div>
   );
@@ -521,7 +639,7 @@ const CashRegisterPage: React.FC = () => {
                 className="flex items-center gap-2 px-6 py-3.5 bg-slate-900 text-white font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:bg-primary transition-all active:scale-95 shadow-lg shadow-slate-900/10"
               >
                 <span className="material-symbols-outlined text-lg">lock_open</span>
-                Arqueo & Cerrar Caja
+                Arqueo & Cierre de Turno
               </button>
             </div>
           </div>
