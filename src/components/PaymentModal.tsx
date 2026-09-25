@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { todayAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -20,7 +21,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ client, onClose, onSuccess 
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
       cliente_id: client.id,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: todayAR(),
       monto: '',
       metodo: 'Efectivo',
       observaciones: `Cobro a cuenta: ${client.razon_social}`,

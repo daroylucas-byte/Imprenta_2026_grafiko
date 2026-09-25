@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { todayAR, formatDateAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -14,8 +15,13 @@ interface JobModalProps {
 
 const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<any>({
-    defaultValues: { fecha: new Date().toISOString().split('T')[0] }
+    defaultValues: { fecha: todayAR(), condiciones: [] }
   });
+
+  // 'condiciones' es un array (jsonb) sin input propio: se registra a mano para que viaje en handleSubmit
+  useEffect(() => {
+    register('condiciones');
+  }, [register]);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [previewPdf, setPreviewPdf] = useState<{ doc: jsPDF; fileName: string } | null>(null);
@@ -30,6 +36,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   const [acabados, setAcabados] = useState<any[]>([]);
   const [terminaciones, setTerminaciones] = useState<any[]>([]);
   const [entregas, setEntregas] = useState<any[]>([]);
+  const [condicionesCatalogo, setCondicionesCatalogo] = useState<string[]>([]);
 
   // Local state for items
   const [items, setItems] = useState<any[]>([]);
@@ -59,7 +66,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     try {
       const [
         { data: c }, { data: pList }, { data: s }, { data: si }, { data: t },
-        { data: p }, { data: a }, { data: tm }, { data: e }
+        { data: p }, { data: a }, { data: tm }, { data: e }, { data: cond }
       ] = await Promise.all([
         supabase.from('t_clientes').select('id, razon_social, nombre, activo').order('razon_social'),
         supabase.from('t_productos').select('*').order('nombre'),
@@ -70,6 +77,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         supabase.from('t_conf_acabados').select('id, nombre').order('nombre'),
         supabase.from('t_conf_terminaciones').select('id, nombre').order('nombre'),
         supabase.from('t_conf_tipos_entrega').select('id, nombre').order('nombre'),
+        supabase.from('t_conf_condiciones_presupuesto').select('nombre').order('created_at'),
       ]);
 
       setClientes(c || []);
@@ -81,6 +89,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       setAcabados(a || []);
       setTerminaciones(tm || []);
       setEntregas(e || []);
+      setCondicionesCatalogo((cond || []).map((c: any) => c.nombre));
     } catch (err) {
       toast.error('Error al cargar datos de configuración');
     }
@@ -119,10 +128,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           facturado: data.facturado || false,
           fecha_aprobacion: data.fecha_aprobacion || null,
           fecha_vencimiento_presupuesto: data.fecha_vencimiento_presupuesto || '',
-          incluye_iva: data.incluye_iva || false,
-          incluye_diseno: data.incluye_diseno || false,
-          incluye_troquel: data.incluye_troquel || false,
-          requiere_sena: data.requiere_sena || false,
+          condiciones: Array.isArray(data.condiciones) ? data.condiciones : [],
           observaciones: data.observaciones || '',
         });
       }
@@ -303,7 +309,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       if (jobId) {
         const { data: currentJob } = await supabase.from('t_trabajos').select('estado').eq('id', jobId).single();
         if (currentJob?.estado === 'PRESUPUESTADO' && data.estado === 'APROBADO') {
-          sanitizedData.fecha_aprobacion = new Date().toISOString().split('T')[0];
+          sanitizedData.fecha_aprobacion = todayAR();
         }
       }
 
@@ -336,7 +342,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
           .insert([{
             ...sanitizedData,
             estado: data.estado || 'PRESUPUESTADO',
-            fecha_aprobacion: data.estado === 'APROBADO' ? new Date().toISOString().split('T')[0] : null,
+            fecha_aprobacion: data.estado === 'APROBADO' ? todayAR() : null,
             created_at: new Date().toISOString(),
           }])
           .select()
@@ -352,7 +358,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
             importe: sena,
             tipo: 'seña',
             tipo_pago: 'EFECTIVO',
-            fecha: new Date().toISOString().split('T')[0],
+            fecha: todayAR(),
             observaciones: 'Seña inicial al crear trabajo'
           }]);
         }
@@ -392,6 +398,19 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Opciones = catálogo actual + condiciones del trabajo que ya no estén en el catálogo (para no perderlas al editar)
+  const condicionesSel: string[] = watch('condiciones') || [];
+  const opcionesCondiciones = [
+    ...condicionesCatalogo,
+    ...condicionesSel.filter(c => !condicionesCatalogo.includes(c))
+  ];
+
+  const toggleCondicion = (txt: string) => {
+    const seleccion = new Set(condicionesSel);
+    if (seleccion.has(txt)) seleccion.delete(txt); else seleccion.add(txt);
+    setValue('condiciones', opcionesCondiciones.filter(o => seleccion.has(o)), { shouldDirty: true });
   };
 
   const handleClosePreview = () => {
@@ -434,7 +453,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         trabajo_id: jobId,
         cliente_id: watch('cliente_id'),
         ...paymentData,
-        fecha: paymentData.fecha || new Date().toISOString().split('T')[0]
+        fecha: paymentData.fecha || todayAR()
       }]);
 
       if (error) throw error;
@@ -612,40 +631,31 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Condiciones del Presupuesto</label>
                   {watch('estado') === 'PRESUPUESTADO' ? (
                     <div className="flex flex-wrap gap-6 bg-surface-container-low rounded-2xl py-4 px-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" {...register('incluye_iva')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
-                        <span className="text-xs font-bold text-on-surface">Incluye IVA</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" {...register('incluye_diseno')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
-                        <span className="text-xs font-bold text-on-surface">Incluye Diseño</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" {...register('incluye_troquel')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
-                        <span className="text-xs font-bold text-on-surface">Incluye Troquel</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" {...register('requiere_sena')} className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20" />
-                        <span className="text-xs font-bold text-on-surface">Requiere Seña</span>
-                      </label>
+                      {opcionesCondiciones.map(txt => (
+                        <label key={txt} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={condicionesSel.includes(txt)}
+                            onChange={() => toggleCondicion(txt)}
+                            className="w-5 h-5 rounded border-outline-variant/30 text-primary focus:ring-primary/20"
+                          />
+                          <span className="text-xs font-bold text-on-surface">{txt}</span>
+                        </label>
+                      ))}
+                      {opcionesCondiciones.length === 0 && (
+                        <span className="text-xs text-outline/60 italic">No hay condiciones cargadas. Agregalas en Configuración → Condiciones del Presupuesto.</span>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2 bg-surface-container-low rounded-2xl py-4 px-6">
-                      {[
-                        { key: 'incluye_iva', label: 'IVA' },
-                        { key: 'incluye_diseno', label: 'Diseño' },
-                        { key: 'incluye_troquel', label: 'Troquel' },
-                        { key: 'requiere_sena', label: 'Seña' },
-                      ].map(({ key, label }) => (
-                        <span
-                          key={key}
-                          className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-lg tracking-widest ${
-                            watch(key) ? 'bg-emerald-50 text-emerald-600' : 'bg-white text-outline/50'
-                          }`}
-                        >
-                          {label}: {watch(key) ? 'Sí' : 'No'}
+                      {condicionesSel.map(txt => (
+                        <span key={txt} className="px-2.5 py-1 text-[10px] font-black uppercase rounded-lg tracking-widest bg-emerald-50 text-emerald-600">
+                          {txt}
                         </span>
                       ))}
+                      {condicionesSel.length === 0 && (
+                        <span className="text-xs text-outline/60 italic">Sin condiciones</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -839,7 +849,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                               )}
                               {item.fecha_muestra && (
                                 <span className="flex items-center gap-1 text-[8px] font-black bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                                  <span className="material-symbols-outlined text-[10px]">calendar_today</span> {new Date(item.fecha_muestra).toLocaleDateString('es-AR')}
+                                  <span className="material-symbols-outlined text-[10px]">calendar_today</span> {formatDateAR(item.fecha_muestra)}
                                 </span>
                               )}
                               {!item.numeracion_desde && !item.fecha_muestra && <span className="text-outline/20">---</span>}
@@ -1083,7 +1093,7 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                       <tbody className="divide-y divide-outline-variant/5">
                         {pagos.map((p, idx) => (
                           <tr key={idx} className="text-[11px] font-bold text-on-surface">
-                            <td className="px-6 py-4">{new Date(p.fecha).toLocaleDateString('es-AR')}</td>
+                            <td className="px-6 py-4">{formatDateAR(p.fecha)}</td>
                             <td className="px-4 py-4">
                               <span className={`px-2 py-0.5 rounded-md uppercase tracking-tighter text-[9px] ${p.tipo === 'seña' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                 {p.tipo}

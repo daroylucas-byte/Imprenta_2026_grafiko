@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { todayAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { useAuthStore } from '../store/authStore';
+import CashClosuresHistory from '../components/CashClosuresHistory';
 
 // Interfaces
 interface OpenCajaInfo {
@@ -17,13 +19,33 @@ interface MovimientoCaja {
   id: string;
   apertura_caja_id: string;
   tipo: 'ingreso' | 'egreso';
+  categoria: 'cobro' | 'gasto' | 'ingreso_extra' | 'retiro';
   metodo: string;
   monto: number;
   descripcion: string;
   recibo_id: string | null;
   created_at: string;
   t_recibos: any;
+  t_conf_tipos_gasto: any;
 }
+
+export interface DesgloseMetodo {
+  metodo: string;
+  ingresos: number;
+  egresos: number;
+  neto: number;
+}
+
+const CATEGORIA_LABELS: Record<string, { label: string; classes: string }> = {
+  cobro: { label: 'Cobro', classes: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+  ingreso_extra: { label: 'Ingreso extra', classes: 'bg-sky-50 text-sky-600 border-sky-100' },
+  gasto: { label: 'Gasto', classes: 'bg-error/5 text-error border-error/10' },
+  retiro: { label: 'Retiro', classes: 'bg-amber-50 text-amber-600 border-amber-100' },
+};
+
+const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Cheque', 'Mercado Pago', 'QR', 'Banco', 'Otro'];
+
+const formatMoney = (n: number) => Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
 // Sub-components: Modals
 interface AbrirCajaModalProps {
@@ -47,7 +69,7 @@ const AbrirCajaModal: React.FC<AbrirCajaModalProps> = ({ onClose, onSuccess }) =
         .from('t_aperturas_caja')
         .insert([{
           usuario_id: user?.id || null,
-          fecha_apertura: new Date().toISOString().split('T')[0],
+          fecha_apertura: todayAR(),
           saldo_inicio: Number(data.saldo_inicio),
           fecha_cierre: null,
           saldo_cierre: null
@@ -122,27 +144,30 @@ const AbrirCajaModal: React.FC<AbrirCajaModalProps> = ({ onClose, onSuccess }) =
 
 interface CerrarCajaModalProps {
   openCaja: OpenCajaInfo;
+  efectivoEsperado: number;
+  desglose: DesgloseMetodo[];
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, onSuccess }) => {
+const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, efectivoEsperado, desglose, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const { user } = useAuthStore();
   const [step, setStep] = useState<'arqueo' | 'retiro'>('arqueo');
   const [quiereRetirar, setQuiereRetirar] = useState<boolean | null>(null);
   const [montoRetiro, setMontoRetiro] = useState('');
-  const [metodoRetiro, setMetodoRetiro] = useState('Efectivo');
+  const metodoRetiro = 'Efectivo';
   const [motivoRetiro, setMotivoRetiro] = useState('');
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm({
     defaultValues: {
-      saldo_cierre: openCaja.saldo_actual.toFixed(2),
+      saldo_cierre: efectivoEsperado.toFixed(2),
     }
   });
 
+  const otrosMedios = desglose.filter(d => d.metodo.toLowerCase() !== 'efectivo');
   const saldoCierreValue = watch('saldo_cierre');
-  const systemSaldo = openCaja.saldo_actual;
+  const systemSaldo = efectivoEsperado;
   const countedSaldo = Number(saldoCierreValue || 0);
   const difference = countedSaldo - systemSaldo;
   const montoRetiroNum = Number(montoRetiro || 0);
@@ -195,13 +220,13 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
           <form onSubmit={handleSubmit(() => setStep('retiro'))} className="p-10 space-y-6">
             <div className="bg-slate-50 p-6 rounded-2xl border border-outline-variant/10 space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo del Sistema:</span>
+                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Efectivo esperado:</span>
                 <span className="text-sm font-black text-on-surface">
                   ${systemSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Saldo Contado:</span>
+                <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Efectivo contado:</span>
                 <span className="text-sm font-black text-primary">
                   ${countedSaldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </span>
@@ -216,8 +241,20 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
               </div>
             </div>
 
+            {otrosMedios.length > 0 && (
+              <div className="bg-sky-50/50 p-5 rounded-2xl border border-sky-100 space-y-2">
+                <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest">Otros medios de pago (verificalos aparte)</p>
+                {otrosMedios.map(d => (
+                  <div key={d.metodo} className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-on-surface-variant">{d.metodo}</span>
+                    <span className="font-black text-on-surface">${formatMoney(d.neto)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto Físico Contado ($)</label>
+              <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Efectivo Físico Contado ($)</label>
               <input
                 type="number" step="0.01" autoFocus
                 {...register('saldo_cierre', { required: true, min: 0 })}
@@ -299,22 +336,7 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio de Retiro</label>
-                  <select
-                    value={metodoRetiro}
-                    onChange={(e) => setMetodoRetiro(e.target.value)}
-                    className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
-                  >
-                    <option>Efectivo</option>
-                    <option>Transferencia</option>
-                    <option>Cheque</option>
-                    <option>Mercado Pago</option>
-                    <option>Otro</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Motivo del Retiro</label>
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Motivo del Retiro (sale del efectivo)</label>
                   <textarea
                     value={motivoRetiro}
                     onChange={(e) => setMotivoRetiro(e.target.value)}
@@ -359,20 +381,29 @@ const CerrarCajaModal: React.FC<CerrarCajaModalProps> = ({ openCaja, onClose, on
 
 interface RegistrarEgresoModalProps {
   openCajaId: string;
+  modo: 'gasto' | 'ingreso_extra';
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId, onClose, onSuccess }) => {
+const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId, modo, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
+  const [tiposGasto, setTiposGasto] = useState<{ id: string; nombre: string }[]>([]);
   const { user } = useAuthStore();
+  const esGasto = modo === 'gasto';
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
       monto: '',
       metodo: 'Efectivo',
+      tipo_gasto_id: '',
       descripcion: '',
     }
   });
+
+  useEffect(() => {
+    if (!esGasto) return;
+    supabase.from('t_conf_tipos_gasto').select('id, nombre').order('nombre').then(({ data }) => setTiposGasto(data || []));
+  }, [esGasto]);
 
   const onSubmit = async (data: any) => {
     setLoading(true);
@@ -381,21 +412,23 @@ const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId,
         .from('t_movimientos_caja')
         .insert([{
           apertura_caja_id: openCajaId,
-          tipo: 'egreso',
+          tipo: esGasto ? 'egreso' : 'ingreso',
+          categoria: esGasto ? 'gasto' : 'ingreso_extra',
           metodo: data.metodo,
           monto: Number(data.monto),
           descripcion: data.descripcion,
+          tipo_gasto_id: esGasto && data.tipo_gasto_id ? data.tipo_gasto_id : null,
           usuario_id: user?.id || null
         }]);
 
       if (error) throw error;
 
-      toast.success('Egreso registrado correctamente');
+      toast.success(esGasto ? 'Gasto registrado correctamente' : 'Ingreso registrado correctamente');
       onSuccess();
       onClose();
     } catch (err: any) {
-      console.error('Error creating expense:', err);
-      toast.error('Error al registrar egreso: ' + err.message);
+      console.error('Error creating cash movement:', err);
+      toast.error('Error al registrar el movimiento: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -404,10 +437,12 @@ const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId,
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500">
-        <div className="px-10 py-8 border-b border-outline-variant/10 flex justify-between items-center bg-error/5">
+        <div className={`px-10 py-8 border-b border-outline-variant/10 flex justify-between items-center ${esGasto ? 'bg-error/5' : 'bg-sky-50/50'}`}>
           <div>
-            <h3 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">Registrar Egreso</h3>
-            <p className="text-[10px] font-black text-error uppercase tracking-widest mt-1">Salida manual de efectivo / fondos</p>
+            <h3 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">{esGasto ? 'Registrar Gasto' : 'Ingreso Extraordinario'}</h3>
+            <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${esGasto ? 'text-error' : 'text-sky-600'}`}>
+              {esGasto ? 'Salida de fondos por gastos del negocio' : 'Entrada de fondos que no proviene de ventas'}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-all">
             <span className="material-symbols-outlined text-2xl">close</span>
@@ -416,29 +451,39 @@ const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId,
 
         <form onSubmit={handleSubmit(onSubmit)} className="p-10 space-y-6">
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto a Retirar ($)</label>
-            <input 
+            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Monto ($)</label>
+            <input
               type="number" step="0.01" autoFocus
               {...register('monto', { required: true, min: 0.01 })}
               placeholder="0.00"
-              className="w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-2xl font-black text-error focus:ring-2 focus:ring-error/20 transition-all shadow-inner"
+              className={`w-full bg-surface-container-low border-none rounded-2xl py-4 px-6 text-2xl font-black focus:ring-2 transition-all shadow-inner ${esGasto ? 'text-error focus:ring-error/20' : 'text-sky-600 focus:ring-sky-500/20'}`}
             />
             {errors.monto && <p className="text-[10px] text-error font-bold mt-1 ml-1">Ingresa un monto válido</p>}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio de Pago / Retiro</label>
-            <select 
+            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Medio de Pago</label>
+            <select
               {...register('metodo', { required: true })}
               className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
             >
-              <option>Efectivo</option>
-              <option>Transferencia</option>
-              <option>Cheque</option>
-              <option>Mercado Pago</option>
-              <option>Otro</option>
+              {METODOS_PAGO.map(m => <option key={m}>{m}</option>)}
             </select>
           </div>
+
+          {esGasto && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Tipo de Gasto</label>
+              <select
+                {...register('tipo_gasto_id', { required: true })}
+                className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
+              >
+                <option value="">Seleccionar...</option>
+                {tiposGasto.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+              </select>
+              {errors.tipo_gasto_id && <p className="text-[10px] text-error font-bold mt-1 ml-1">Elegí un tipo de gasto (se administra en Configuración)</p>}
+            </div>
+          )}
 
           <div className="space-y-1">
             <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Detalle / Justificación</label>
@@ -446,7 +491,7 @@ const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId,
               {...register('descripcion', { required: true })}
               rows={2}
               className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-primary/20 resize-none"
-              placeholder="Ej: Pago de flete, compra de papelería, retiro para depósito bancario..."
+              placeholder={esGasto ? 'Ej: Pago de flete, compra de papelería...' : 'Ej: Aporte de socio, venta de chatarra, devolución de proveedor...'}
             />
             {errors.descripcion && <p className="text-[10px] text-error font-bold mt-1 ml-1">La justificación es requerida</p>}
           </div>
@@ -462,14 +507,14 @@ const RegistrarEgresoModal: React.FC<RegistrarEgresoModalProps> = ({ openCajaId,
             <button 
               disabled={loading}
               type="submit"
-              className="flex-[2] py-4 bg-error text-white font-bold rounded-2xl shadow-xl shadow-error/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest"
+              className={`flex-[2] py-4 text-white font-bold rounded-2xl shadow-xl hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest ${esGasto ? 'bg-error shadow-error/20' : 'bg-sky-600 shadow-sky-500/20'}`}
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[1.2rem]">trending_down</span>
-                  <span>Confirmar Egreso</span>
+                  <span className="material-symbols-outlined text-[1.2rem]">{esGasto ? 'trending_down' : 'trending_up'}</span>
+                  <span>{esGasto ? 'Confirmar Gasto' : 'Confirmar Ingreso'}</span>
                 </>
               )}
             </button>
@@ -485,11 +530,14 @@ const CashRegisterPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [openCaja, setOpenCaja] = useState<OpenCajaInfo | null>(null);
   const [movimientos, setMovimientos] = useState<MovimientoCaja[]>([]);
+  const [efectivoEsperado, setEfectivoEsperado] = useState(0);
+  const [desglose, setDesglose] = useState<DesgloseMetodo[]>([]);
+  const [tab, setTab] = useState<'turno' | 'historial'>('turno');
 
   // Modal open states
   const [isOpeningOpen, setIsOpeningOpen] = useState(false);
   const [isClosingOpen, setIsClosingOpen] = useState(false);
-  const [isEgresoOpen, setIsEgresoOpen] = useState(false);
+  const [movimientoModo, setMovimientoModo] = useState<'gasto' | 'ingreso_extra' | null>(null);
 
   const fetchCajaData = useCallback(async () => {
     setLoading(true);
@@ -504,29 +552,43 @@ const CashRegisterPage: React.FC = () => {
       setOpenCaja(data);
 
       if (data) {
-        // 2. Fetch movements of the active caja
-        const { data: movData, error: movError } = await supabase
-          .from('t_movimientos_caja')
-          .select(`
-            id,
-            apertura_caja_id,
-            tipo,
-            metodo,
-            monto,
-            descripcion,
-            recibo_id,
-            created_at,
-            t_recibos (
-              numero
-            )
-          `)
-          .eq('apertura_caja_id', data.apertura_caja_id)
-          .order('created_at', { ascending: false });
+        // 2. Fetch movements, cash balance and per-method breakdown of the active caja
+        const [{ data: movData, error: movError }, { data: efData, error: efError }, { data: dgData, error: dgError }] = await Promise.all([
+          supabase
+            .from('t_movimientos_caja')
+            .select(`
+              id,
+              apertura_caja_id,
+              tipo,
+              categoria,
+              metodo,
+              monto,
+              descripcion,
+              recibo_id,
+              created_at,
+              t_recibos (
+                numero
+              ),
+              t_conf_tipos_gasto (
+                nombre
+              )
+            `)
+            .eq('apertura_caja_id', data.apertura_caja_id)
+            .order('created_at', { ascending: false }),
+          supabase.from('v_caja_efectivo_actual').select('efectivo_esperado').maybeSingle(),
+          supabase.from('v_caja_desglose_metodos').select('metodo, ingresos, egresos, neto').order('metodo'),
+        ]);
 
         if (movError) throw movError;
+        if (efError) throw efError;
+        if (dgError) throw dgError;
         setMovimientos(movData || []);
+        setEfectivoEsperado(Number(efData?.efectivo_esperado ?? data.saldo_inicio));
+        setDesglose((dgData || []).map(d => ({ metodo: d.metodo, ingresos: Number(d.ingresos), egresos: Number(d.egresos), neto: Number(d.neto) })));
       } else {
         setMovimientos([]);
+        setEfectivoEsperado(0);
+        setDesglose([]);
       }
     } catch (err: any) {
       console.error('Error fetching cash register data:', err);
@@ -542,9 +604,26 @@ const CashRegisterPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
-      
-      {/* Box status card */}
-      {loading ? (
+
+      {/* Tabs */}
+      <div className="flex gap-2">
+        {([['turno', 'Turno Actual', 'point_of_sale'], ['historial', 'Historial de Cierres', 'history']] as const).map(([id, label, icon]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`flex items-center gap-2 px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+              tab === id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-white text-on-surface-variant border border-outline-variant/10 hover:bg-primary/10'
+            }`}
+          >
+            <span className="material-symbols-outlined text-lg">{icon}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'historial' ? (
+        <CashClosuresHistory />
+      ) : loading ? (
         <div className="h-64 flex flex-col items-center justify-center space-y-4 text-primary/30">
           <div className="w-10 h-10 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
           <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Caja Registradora...</p>
@@ -561,7 +640,7 @@ const CashRegisterPage: React.FC = () => {
                   <span className="material-symbols-outlined">payments</span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Saldo Inicial</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Efectivo Inicial</p>
                   <h3 className="text-2xl font-headline font-extrabold text-on-surface">
                     ${Number(openCaja.saldo_inicio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </h3>
@@ -583,7 +662,7 @@ const CashRegisterPage: React.FC = () => {
                   </h3>
                 </div>
               </div>
-              <p className="text-[10px] font-bold text-outline uppercase tracking-wider">Pagos y cobros recibidos</p>
+              <p className="text-[10px] font-bold text-outline uppercase tracking-wider">Cobros e ingresos (todos los medios)</p>
             </div>
 
             {/* Total Egresos */}
@@ -599,7 +678,7 @@ const CashRegisterPage: React.FC = () => {
                   </h3>
                 </div>
               </div>
-              <p className="text-[10px] font-bold text-outline uppercase tracking-wider">Retiros y salidas de caja</p>
+              <p className="text-[10px] font-bold text-outline uppercase tracking-wider">Gastos y retiros (todos los medios)</p>
             </div>
 
             {/* Saldo Actual / Caja Abierta */}
@@ -609,29 +688,61 @@ const CashRegisterPage: React.FC = () => {
                 Caja Abierta
               </div>
               <div className="space-y-1 mt-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Saldo Actual en Caja</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-200">Efectivo en Caja</p>
                 <h3 className="text-3xl font-headline font-extrabold tracking-tight">
-                  ${Number(openCaja.saldo_actual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  ${formatMoney(efectivoEsperado)}
                 </h3>
               </div>
-              <p className="text-[9px] font-bold text-emerald-100 uppercase tracking-widest mt-4">Arqueo esperado en sistema</p>
+              <p className="text-[9px] font-bold text-emerald-100 uppercase tracking-widest mt-4">Efectivo esperado en el cajón</p>
             </div>
+          </div>
+
+          {/* Per-method breakdown */}
+          <div className="bg-white p-8 rounded-[2rem] border border-outline-variant/10 shadow-sm space-y-5">
+            <div>
+              <h4 className="text-sm font-headline font-extrabold text-on-surface leading-tight">Recaudación por Medio de Pago</h4>
+              <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">Turno actual — controlá transferencias, QR y cheques contra el banco</p>
+            </div>
+            {desglose.length === 0 ? (
+              <p className="text-xs text-outline/50 italic">Todavía no hay movimientos en este turno.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {desglose.map(d => (
+                  <div key={d.metodo} className="bg-slate-50 p-5 rounded-2xl border border-outline-variant/10 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">{d.metodo}</p>
+                    <p className="text-xl font-headline font-extrabold text-on-surface">${formatMoney(d.neto)}</p>
+                    <p className="text-[10px] font-bold text-outline">
+                      <span className="text-emerald-600">+${formatMoney(d.ingresos)}</span>
+                      {d.egresos > 0 && <span className="text-error"> · -${formatMoney(d.egresos)}</span>}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick Actions Panel */}
           <div className="flex flex-wrap gap-4 items-center bg-white p-6 rounded-[2rem] border border-outline-variant/10 shadow-sm justify-between">
             <div className="flex flex-col">
               <h4 className="text-sm font-headline font-extrabold text-on-surface leading-tight">Operaciones de Caja</h4>
-              <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">Control manual e ingresos/egresos directos</p>
+              <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">Gastos, ingresos extraordinarios y cierre de turno</p>
             </div>
-            
-            <div className="flex gap-4">
-              <button 
-                onClick={() => setIsEgresoOpen(true)}
+
+            <div className="flex flex-wrap gap-4">
+              <button
+                onClick={() => setMovimientoModo('ingreso_extra')}
+                className="flex items-center gap-2 px-6 py-3.5 bg-sky-600 text-white font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-sky-500/15"
+              >
+                <span className="material-symbols-outlined text-lg">trending_up</span>
+                Ingreso Extraordinario
+              </button>
+
+              <button
+                onClick={() => setMovimientoModo('gasto')}
                 className="flex items-center gap-2 px-6 py-3.5 bg-error text-white font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-error/15"
               >
                 <span className="material-symbols-outlined text-lg">trending_down</span>
-                Registrar Egreso
+                Registrar Gasto
               </button>
               
               <button 
@@ -671,17 +782,19 @@ const CashRegisterPage: React.FC = () => {
                         {new Date(mov.created_at).toLocaleString('es-AR')}
                       </td>
                       <td className="px-6 py-5">
-                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase rounded-lg tracking-widest w-fit border ${
-                          mov.tipo === 'ingreso' 
-                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
-                            : 'bg-error/5 text-error border-error/10'
-                        }`}>
-                          {mov.tipo}
+                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase rounded-lg tracking-widest w-fit border ${(CATEGORIA_LABELS[mov.categoria] || CATEGORIA_LABELS.cobro).classes}`}>
+                          {(CATEGORIA_LABELS[mov.categoria] || CATEGORIA_LABELS.cobro).label}
                         </span>
                       </td>
                       <td className="px-6 py-5 text-sm font-bold text-secondary">{mov.metodo}</td>
                       <td className="px-6 py-5">
                         <p className="text-sm font-bold text-on-surface leading-snug">{mov.descripcion}</p>
+                        {(() => {
+                          const tg = Array.isArray(mov.t_conf_tipos_gasto) ? mov.t_conf_tipos_gasto[0] : mov.t_conf_tipos_gasto;
+                          return tg?.nombre ? (
+                            <span className="text-[9px] font-black text-error bg-error/5 px-2 py-0.5 rounded mt-1 inline-block">{tg.nombre}</span>
+                          ) : null;
+                        })()}
                         {(() => {
                           const receipt = Array.isArray(mov.t_recibos) ? mov.t_recibos[0] : mov.t_recibos;
                           return receipt?.numero ? (
@@ -725,13 +838,13 @@ const CashRegisterPage: React.FC = () => {
           </div>
 
           <div className="flex gap-4">
-            <button 
+            <button
               disabled={true}
               title="Abrí la caja primero"
               className="flex items-center gap-2 px-6 py-3.5 bg-slate-100 text-slate-400 font-bold rounded-2xl text-[10px] uppercase tracking-widest border border-slate-200 cursor-not-allowed opacity-50"
             >
               <span className="material-symbols-outlined text-lg">trending_down</span>
-              Registrar Egreso
+              Registrar Gasto
             </button>
             <button 
               onClick={() => setIsOpeningOpen(true)}
@@ -753,17 +866,20 @@ const CashRegisterPage: React.FC = () => {
       )}
 
       {isClosingOpen && openCaja && (
-        <CerrarCajaModal 
+        <CerrarCajaModal
           openCaja={openCaja}
+          efectivoEsperado={efectivoEsperado}
+          desglose={desglose}
           onClose={() => setIsClosingOpen(false)}
           onSuccess={fetchCajaData}
         />
       )}
 
-      {isEgresoOpen && openCaja && (
-        <RegistrarEgresoModal 
+      {movimientoModo && openCaja && (
+        <RegistrarEgresoModal
           openCajaId={openCaja.apertura_caja_id}
-          onClose={() => setIsEgresoOpen(false)}
+          modo={movimientoModo}
+          onClose={() => setMovimientoModo(null)}
           onSuccess={fetchCajaData}
         />
       )}

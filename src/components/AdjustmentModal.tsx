@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { todayAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -25,7 +26,7 @@ const AdjustmentModal: React.FC<AdjustmentModalProps> = ({ client, onClose, onSu
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
       tipo: 'credito',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: todayAR(),
       monto: '',
       motivo: '',
     }

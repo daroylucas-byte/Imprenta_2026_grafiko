@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatDateAR, parseDateOnly } from '../utils/dates';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
@@ -95,7 +96,7 @@ const BillingPage: React.FC = () => {
       let pendingSum = 0;
 
       invoicesData.forEach(inv => {
-        const invDate = new Date(inv.fecha);
+        const invDate = parseDateOnly(inv.fecha);
         if (invDate.getMonth() === currentMonth && invDate.getFullYear() === currentYear) {
           monthSum += Number(inv.total);
         }
@@ -302,7 +303,7 @@ const BillingPage: React.FC = () => {
 
                 return (
                   <tr key={inv.id} className="hover:bg-surface-container-low transition-colors group cursor-pointer">
-                    <td className="px-8 py-5 text-sm font-medium">{new Date(inv.fecha).toLocaleDateString()}</td>
+                    <td className="px-8 py-5 text-sm font-medium">{formatDateAR(inv.fecha)}</td>
                     <td className="px-6 py-5 text-sm text-on-surface-variant">{inv.tipo}</td>
                     <td className="px-6 py-5 text-sm font-headline font-bold text-primary group-hover:underline">{(inv.numero || 'S/N').toUpperCase()}</td>
                     <td className="px-6 py-5 text-sm font-medium">{inv.t_clientes?.razon_social}</td>

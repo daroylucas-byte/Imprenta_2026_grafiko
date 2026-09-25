@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatDateAR } from '../utils/dates';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
@@ -499,7 +500,7 @@ const ArcaConfigPage: React.FC = () => {
                             <div className="space-y-0.5">
                               <div className="text-xs font-mono font-bold text-on-surface">{factura.cae}</div>
                               <div className="text-[9px] font-bold text-outline">
-                                Vence: {factura.cae_vencimiento ? new Date(factura.cae_vencimiento).toLocaleDateString('es-AR') : 'N/A'}
+                                Vence: {factura.cae_vencimiento ? formatDateAR(factura.cae_vencimiento) : 'N/A'}
                               </div>
                             </div>
                           ) : (

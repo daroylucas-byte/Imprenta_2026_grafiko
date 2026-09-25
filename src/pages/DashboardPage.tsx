@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { formatDateAR, parseDateOnly, toDateString } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Chart from 'chart.js/auto';
@@ -30,6 +31,20 @@ interface MonthlyData {
   collected: number;
 }
 
+interface RankingRow {
+  cliente_id: string;
+  nombre: string;
+  total_vendido: number;
+  cantidad_trabajos: number;
+  saldo_pendiente: number;
+}
+
+const RANKING_PERIODS = [
+  { id: 'mes', label: 'Este mes' },
+  { id: 'anio', label: 'Este año' },
+  { id: 'todo', label: 'Todo' },
+] as const;
+
 const DashboardPage: React.FC = () => {
   const [metrics, setMetrics] = useState<Metric[]>([
     { name: 'En producción', value: '0', icon: 'precision_manufacturing', color: 'indigo-600', label: 'Taller', bgColor: 'bg-indigo-50' },
@@ -42,6 +57,26 @@ const DashboardPage: React.FC = () => {
   const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
   const [topProducts, setTopProducts] = useState<{name: string, qty: number}[]>([]);
   const [debtors, setDebtors] = useState<{name: string, balance: number}[]>([]);
+
+  const [rankingPeriod, setRankingPeriod] = useState<'mes' | 'anio' | 'todo'>('mes');
+  const [ranking, setRanking] = useState<RankingRow[]>([]);
+  const [rankingLoading, setRankingLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRanking = async () => {
+      setRankingLoading(true);
+      const now = new Date();
+      const fmt = toDateString;
+      const desde = rankingPeriod === 'mes' ? fmt(new Date(now.getFullYear(), now.getMonth(), 1))
+        : rankingPeriod === 'anio' ? fmt(new Date(now.getFullYear(), 0, 1))
+        : null;
+      const { data, error } = await supabase.rpc('ranking_clientes', { p_desde: desde, p_hasta: null, p_limit: 10 });
+      if (error) toast.error('Error al cargar el ranking de clientes: ' + error.message);
+      setRanking((data as RankingRow[]) || []);
+      setRankingLoading(false);
+    };
+    fetchRanking();
+  }, [rankingPeriod]);
 
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
@@ -121,8 +156,8 @@ const DashboardPage: React.FC = () => {
   const fetchData = useCallback(async () => {
     try {
       const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().split('T')[0];
+      const firstDay = toDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+      const sixMonthsAgo = toDateString(new Date(now.getFullYear(), now.getMonth() - 5, 1));
 
       // 1. Fetch Core Data from Views & Tables
       const [
@@ -168,18 +203,18 @@ const DashboardPage: React.FC = () => {
         // Sold = Total of jobs approved in that month
         const mTheoretical = jobMetrics?.filter(j => {
           if (!j.fecha_aprobacion) return false;
-          const aDate = new Date(j.fecha_aprobacion);
+          const aDate = parseDateOnly(j.fecha_aprobacion);
           return aDate.getMonth() === targetMonth && aDate.getFullYear() === targetYear;
         }).reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
 
         // Collected = Payments + Receipts in that month
         const mPayments = historicalPayments?.filter(p => {
-          const pDate = new Date(p.fecha);
+          const pDate = parseDateOnly(p.fecha);
           return pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear;
         }).reduce((acc, curr) => acc + (curr.importe || 0), 0) || 0;
 
         const mReceipts = historicalReceipts?.filter(r => {
-          const rDate = new Date(r.fecha);
+          const rDate = parseDateOnly(r.fecha);
           return rDate.getMonth() === targetMonth && rDate.getFullYear() === targetYear;
         }).reduce((acc, curr) => acc + (curr.total || 0), 0) || 0;
 
@@ -200,7 +235,7 @@ const DashboardPage: React.FC = () => {
           status: j.estado,
           statusColor: info.color,
           statusIcon: info.icon,
-          date: j.fecha_aprobacion ? new Date(j.fecha_aprobacion).toLocaleDateString() : 'Pendiente',
+          date: j.fecha_aprobacion ? formatDateAR(j.fecha_aprobacion) : 'Pendiente',
           total: `$ ${Number(j.total).toLocaleString('es-AR')}`,
           isFacturado: j.facturado
         };
@@ -310,6 +345,71 @@ const DashboardPage: React.FC = () => {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Client Ranking (by sold amount) */}
+      <div className="bg-white p-8 rounded-[2.5rem] border border-outline-variant/10 shadow-sm space-y-6">
+        <div className="flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+              <span className="material-symbols-outlined text-sm">military_tech</span>
+            </div>
+            <div>
+              <h4 className="text-lg font-headline font-extrabold text-on-surface">Mejores Clientes</h4>
+              <p className="text-xs text-on-surface-variant font-bold">Ranking por monto vendido (trabajos aprobados)</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {RANKING_PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setRankingPeriod(p.id)}
+                className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                  rankingPeriod === p.id ? 'bg-primary text-white' : 'bg-surface-container-low text-on-surface-variant hover:bg-primary/10'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {rankingLoading ? (
+          <div className="text-center py-10 opacity-30 italic text-xs font-bold">Cargando ranking...</div>
+        ) : ranking.length === 0 ? (
+          <div className="text-center py-10 opacity-20 italic text-xs font-bold">No hay ventas en este período</div>
+        ) : (
+          <div className="space-y-4">
+            {ranking.map((r, idx) => (
+              <div key={r.cliente_id} className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 shrink-0 rounded-full bg-white flex items-center justify-center text-[10px] font-black text-primary shadow-sm border border-outline-variant/10">
+                      {idx + 1}
+                    </div>
+                    <span className="text-xs font-black text-on-surface truncate">{r.nombre}</span>
+                    <span className="text-[10px] font-bold text-on-surface-variant opacity-60 shrink-0">{r.cantidad_trabajos} trab.</span>
+                    {r.saldo_pendiente > 1 && (
+                      <span
+                        title={`Saldo pendiente: $ ${Number(r.saldo_pendiente).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-error/10 text-error text-[10px] font-black uppercase tracking-tighter shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">warning</span>
+                        Debe
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs font-black text-primary shrink-0">$ {Number(r.total_vendido).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="h-1.5 w-full bg-surface-container-low rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-700"
+                    style={{ width: `${(Number(r.total_vendido) / Number(ranking[0].total_vendido)) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

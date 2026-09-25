@@ -6,6 +6,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import KanbanPage from './pages/KanbanPage';
 import ClientsPage from './pages/ClientsPage';
+import SuppliersPage from './pages/SuppliersPage';
 import BillingPage from './pages/BillingPage';
 import ConfigDropdownPage from './pages/ConfigDropdownPage';
 import ProductsPage from './pages/ProductsPage';
@@ -50,6 +51,11 @@ function App() {
       <Route
         path="/clientes"
         element={user ? <Layout title="Gestión de Clientes"><ClientsPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/proveedores"
+        element={user ? <Layout title="Gestión de Proveedores"><SuppliersPage /></Layout> : <Navigate to="/login" />}
       />
 
       <Route

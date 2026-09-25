@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { todayAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
@@ -22,7 +23,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
     defaultValues: {
       cliente_id: job?.cliente_id || '',
       tipo: 'Factura B',
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: todayAR(),
       numero: '',
       subtotal: initialSubtotal,
       iva: initialIva,
@@ -292,7 +293,7 @@ const BillingModal: React.FC<BillingModalProps> = ({ job, existingInvoiceId, onC
               comprobante_id: invoice.id,
               tipo: 'Efectivo',
               importe: senaValue,
-              fecha: new Date().toISOString().split('T')[0],
+              fecha: todayAR(),
               observaciones: 'Pago adelantado (Seña) registrado en preventa'
             }]);
           

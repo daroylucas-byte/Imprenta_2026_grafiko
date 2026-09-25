@@ -101,17 +101,24 @@ export const buildJobVoucherDoc = async (jobId: string): Promise<{ doc: jsPDF; f
   doc.text(`Terminación: ${terminacion}`, 115, 95);
   doc.text(`Entrega: ${entrega}`, 115, 101);
 
-  // --- Budget Conditions (checkboxes + observaciones) ---
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('CONDICIONES DEL PRESUPUESTO', 15, 108);
-  doc.line(15, 110, 100, 110);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text(`Incluye IVA: ${job.incluye_iva ? 'Sí' : 'No'}`, 15, 118);
-  doc.text(`Incluye Diseño: ${job.incluye_diseno ? 'Sí' : 'No'}`, 15, 124);
-  doc.text(`Incluye Troquel: ${job.incluye_troquel ? 'Sí' : 'No'}`, 15, 130);
-  doc.text(`Requiere Seña: ${job.requiere_sena ? 'Sí' : 'No'}`, 15, 136);
+  // --- Condiciones del presupuesto (lista dinámica, job.condiciones es un array jsonb de textos) ---
+  const condiciones: string[] = Array.isArray(job.condiciones) ? job.condiciones : [];
+  let tableStartY = 112;
+  if (condiciones.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('CONDICIONES DEL PRESUPUESTO', 15, 108);
+    doc.line(15, 110, 100, 110);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    let condY = 118;
+    condiciones.forEach(cond => {
+      const lines: string[] = doc.splitTextToSize(`• ${cond}`, 85);
+      doc.text(lines, 15, condY);
+      condY += 6 * lines.length;
+    });
+    tableStartY = condY + 6;
+  }
 
   // --- Items Table ---
   const tableData = (items || []).map(item => [
@@ -122,7 +129,7 @@ export const buildJobVoucherDoc = async (jobId: string): Promise<{ doc: jsPDF; f
   ]);
 
   autoTable(doc, {
-    startY: 146,
+    startY: tableStartY,
     head: [['Producto', 'Cant.', 'Precio Unit.', 'Subtotal']],
     body: tableData,
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },

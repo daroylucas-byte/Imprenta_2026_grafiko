@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatDateAR } from '../utils/dates';
 import { useForm, Controller } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -781,7 +782,7 @@ const ClientCampaignsPage: React.FC = () => {
                         {analisis.estilo_descripcion}
                       </p>
                       <div className="text-[8px] text-outline font-bold uppercase tracking-widest pt-2 border-t border-violet-100/30 text-right">
-                        Actualizado: {new Date(analisis.updated_at).toLocaleDateString('es-AR')}
+                        Actualizado: {formatDateAR(analisis.updated_at)}
                       </div>
                     </div>
                   )}
@@ -831,7 +832,7 @@ const ClientCampaignsPage: React.FC = () => {
                             <div className="space-y-1">
                               <p className={`font-black ${isSelected ? 'text-violet-700' : 'text-on-surface'}`}>{c.nombre_campana}</p>
                               <p className="text-[9px] text-outline font-semibold uppercase tracking-wider">
-                                {c.fecha_inicio ? new Date(c.fecha_inicio).toLocaleDateString('es-AR') : 'S/F'} - {c.fecha_fin ? new Date(c.fecha_fin).toLocaleDateString('es-AR') : 'S/F'}
+                                {c.fecha_inicio ? formatDateAR(c.fecha_inicio) : 'S/F'} - {c.fecha_fin ? formatDateAR(c.fecha_fin) : 'S/F'}
                               </p>
                             </div>
                             <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded tracking-widest shrink-0 border ${
@@ -1029,7 +1030,7 @@ const ClientCampaignsPage: React.FC = () => {
                           <span>•</span>
                           <span className="flex items-center gap-1">
                             <span className="material-symbols-outlined text-sm">calendar_month</span>
-                            Plan: {selectedCampana.fecha_inicio ? new Date(selectedCampana.fecha_inicio).toLocaleDateString('es-AR') : 'S/F'} - {selectedCampana.fecha_fin ? new Date(selectedCampana.fecha_fin).toLocaleDateString('es-AR') : 'S/F'}
+                            Plan: {selectedCampana.fecha_inicio ? formatDateAR(selectedCampana.fecha_inicio) : 'S/F'} - {selectedCampana.fecha_fin ? formatDateAR(selectedCampana.fecha_fin) : 'S/F'}
                           </span>
                         </div>
                       </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatDateAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
@@ -292,7 +293,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
     // Note: Use a copy and sort for PDF (Oldest first for chronological order in PDF looks better)
     // Respeta el filtro de fechas activo en pantalla, consistente con lo que ve el usuario.
     const tableData = [...filteredLedger].reverse().map(item => [
-      new Date(item.fecha).toLocaleDateString('es-AR'),
+      formatDateAR(item.fecha),
       `${item.tipo}${item.numero !== '---' ? ` [${item.numero}]` : ''}`,
       item.descripcion,
       item.debe > 0 ? `$${item.debe.toLocaleString('es-AR')}` : '',
@@ -458,7 +459,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                 {filteredLedger.map((item, idx) => (
                   <tr key={idx} className={`group animate-in fade-in slide-in-from-right-4 duration-300 ${(item as any).is_application ? 'opacity-60 grayscale-[0.5]' : ''}`} style={{ animationDelay: `${idx * 20}ms` }}>
                     <td className="bg-white px-6 py-5 rounded-l-3xl border-y border-l border-outline-variant/10 first-letter:uppercase">
-                      <p className="text-sm font-bold text-on-surface">{new Date(item.fecha).toLocaleDateString('es-AR')}</p>
+                      <p className="text-sm font-bold text-on-surface">{formatDateAR(item.fecha)}</p>
                       <p className="text-[9px] text-outline font-bold uppercase tracking-tight">{item.tipo}</p>
                     </td>
                     <td className="bg-white px-6 py-5 border-y border-outline-variant/10">
@@ -510,7 +511,7 @@ const ClientLedgerModal: React.FC<ClientLedgerModalProps> = ({ client, onClose }
                       </div>
                    </div>
                    <div className="mt-4 flex items-center justify-between text-[9px] font-bold text-outline uppercase tracking-tighter">
-                      <span>Aprobado: {job.fecha_aprobacion ? new Date(job.fecha_aprobacion).toLocaleDateString('es-AR') : '---'}</span>
+                      <span>Aprobado: {job.fecha_aprobacion ? formatDateAR(job.fecha_aprobacion) : '---'}</span>
                       <div className="flex gap-1">
                         {job.total_cobrado_directo > 0 && <span className="text-emerald-600">Cobrado: ${job.total_cobrado_directo.toLocaleString('es-AR')}</span>}
                       </div>

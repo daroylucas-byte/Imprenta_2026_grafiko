@@ -20,7 +20,18 @@ interface Client {
   saldo_pendiente?: number;
   credito_disponible?: number;
   activo: boolean;
+  // Campos descriptivos que NO están en v_saldo_clientes: se traen de t_clientes y se cruzan por id
+  nombre_fantasia?: string;
+  direccion?: string;
+  localidad?: string;
+  nro_iibb?: string;
+  rubro?: string;
+  rubro_nombre?: string;
+  observaciones?: string;
 }
+
+const normalizeText = (s: unknown) =>
+  String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const ClientsPage: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
@@ -36,14 +47,25 @@ const ClientsPage: React.FC = () => {
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch consolidated balances directly from the view
-      const { data, error } = await supabase
-        .from('v_saldo_clientes')
-        .select('*')
-        .order('razon_social', { ascending: true });
+      // Saldos desde la vista (fuente de verdad); datos descriptivos desde t_clientes, que la vista no incluye
+      const [saldosRes, clientesRes, rubrosRes] = await Promise.all([
+        supabase.from('v_saldo_clientes').select('*').order('razon_social', { ascending: true }),
+        supabase.from('t_clientes').select('*'),
+        supabase.from('t_conf_rubros_cliente').select('id, nombre'),
+      ]);
 
-      if (error) throw error;
-      setClients(data || []);
+      if (saldosRes.error) throw saldosRes.error;
+      if (clientesRes.error) throw clientesRes.error;
+
+      const rubroPorId: Record<string, string> = {};
+      (rubrosRes.data || []).forEach((r: any) => { rubroPorId[r.id] = r.nombre; });
+      const datosPorId: Record<string, any> = {};
+      (clientesRes.data || []).forEach((c: any) => { datosPorId[c.id] = c; });
+
+      setClients((saldosRes.data || []).map((v: any) => {
+        const extra = datosPorId[v.id] || {};
+        return { ...extra, ...v, rubro_nombre: rubroPorId[extra.rubro_id] || '' };
+      }));
     } catch (error: any) {
       toast.error('Error al cargar clientes: ' + error.message);
     } finally {
@@ -73,11 +95,23 @@ const ClientsPage: React.FC = () => {
     }
   };
 
+  // Búsqueda libre: cada palabra tiene que aparecer en algún campo del cliente (AND entre palabras),
+  // sin distinguir mayúsculas ni tildes. CUIT y teléfonos también se buscan solo con dígitos.
+  const clientMatchesSearch = (c: Client) => {
+    const words = normalizeText(searchTerm).split(/\s+/).filter(Boolean);
+    if (words.length === 0) return true;
+    const haystack = normalizeText([
+      c.razon_social, c.nombre, c.nombre_fantasia, c.cuit, c.email, c.telefonos,
+      c.direccion, c.localidad, c.situacion_iva, c.nro_iibb,
+      c.rubro_nombre, c.rubro, c.observaciones,
+      String(c.cuit ?? '').replace(/\D/g, ''), String(c.telefonos ?? '').replace(/\D/g, '')
+    ].filter(v => v !== null && v !== undefined && v !== '').join(' '));
+    return words.every(w => haystack.includes(w));
+  };
+
   const filteredClients = clients.filter(c =>
     (activeTab === 'activos' ? c.activo !== false : c.activo === false) &&
-    (c.razon_social.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.cuit?.includes(searchTerm) ||
-    c.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+    clientMatchesSearch(c)
   );
 
   // Statistics
@@ -137,7 +171,7 @@ const ClientsPage: React.FC = () => {
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
             <input
               className="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-6 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
-              placeholder="Buscar por Razón Social, CUIT o Email..."
+              placeholder="Buscar por nombre, CUIT, email, teléfono, dirección, localidad, rubro..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

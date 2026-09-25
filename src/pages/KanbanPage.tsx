@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { todayAR } from '../utils/dates';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import JobModal from '../components/JobModal';
 import BillingModal from '../components/BillingModal';
 import JobCompletionPaymentModal from '../components/JobCompletionPaymentModal';
 import { printJobVoucher } from '../utils/printJob';
+import { useAuthStore } from '../store/authStore';
 
 interface Job {
   id: string;
@@ -35,18 +37,39 @@ interface Job {
   total_aplicado_cc?: number;
 }
 
+const SPEC_FIELDS = [
+  // color: clase Tailwind literal (el JIT necesita ver el nombre completo en el archivo)
+  { key: 'soporte_id', label: 'Soporte', table: 't_conf_soportes', color: 'bg-indigo-500' },
+  { key: 'sistema_impresion_id', label: 'Sistema', table: 't_conf_sistemas_impresion', color: 'bg-emerald-500' },
+  { key: 'tamanio_papel_id', label: 'Tamaño', table: 't_conf_tamanios_papel', color: 'bg-amber-500' },
+  { key: 'peliculado_id', label: 'Peliculado', table: 't_conf_peliculados', color: 'bg-rose-500' },
+  { key: 'acabado_id', label: 'Acabado', table: 't_conf_acabados', color: 'bg-sky-500' },
+  { key: 'terminacion_id', label: 'Terminación', table: 't_conf_terminaciones', color: 'bg-violet-500' },
+  { key: 'tipo_entrega_id', label: 'Entrega', table: 't_conf_tipos_entrega', color: 'bg-slate-500' },
+] as const;
+
+type JobSpec = { label: string; nombre: string | null; color: string };
+
 const KanbanPage: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
+  const { user } = useAuthStore();
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('table');
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
   const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'due_soon' | 'overdue'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [specNames, setSpecNames] = useState<Record<string, string>>({});
+  // Tooltip con position:fixed porque el contenedor de la tabla tiene overflow-x-auto y recortaría uno absoluto
+  const [specTip, setSpecTip] = useState<{ x: number; y: number; specs: JobSpec[] } | null>(null);
   const [completionPayment, setCompletionPayment] = useState<{ job: Job; targetStatus: string } | null>(null);
 
   const fetchJobs = useCallback(async () => {
@@ -72,6 +95,49 @@ const KanbanPage: React.FC = () => {
     fetchJobs();
   }, [fetchJobs]);
 
+  // Nombres de las especificaciones técnicas (id -> nombre) para la columna "Specs" de la vista Tabla.
+  // Los ids son uuid, así que un solo mapa alcanza para las 7 tablas de configuración.
+  useEffect(() => {
+    const loadSpecNames = async () => {
+      const results = await Promise.all(SPEC_FIELDS.map(f => supabase.from(f.table).select('id, nombre')));
+      const map: Record<string, string> = {};
+      results.forEach(({ data }) => (data || []).forEach((row: any) => { map[row.id] = row.nombre; }));
+      setSpecNames(map);
+    };
+    loadSpecNames();
+  }, []);
+
+  const normalizeText = (s: unknown) =>
+    String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+  // "2026-08-15" -> "15/08/2026", para poder buscar la fecha tal como se ve en pantalla
+  const isoToDisplay = (iso?: string | null) => (iso ? iso.split('T')[0].split('-').reverse().join('/') : '');
+
+  // Búsqueda libre: cada palabra tiene que aparecer en algún campo del trabajo (AND entre palabras)
+  const jobMatchesSearch = (job: Job) => {
+    const words = normalizeText(searchTerm).split(/\s+/).filter(Boolean);
+    if (words.length === 0) return true;
+    const j = job as any;
+    const haystack = normalizeText([
+      j.cliente_nombre, job.descripcion, job.estado, job.id, j.numero_trabajo,
+      j.fecha, isoToDisplay(j.fecha), job.fecha_entrega, isoToDisplay(job.fecha_entrega),
+      job.total, j.observaciones,
+      ...SPEC_FIELDS.map(f => specNames[j[f.key]])
+    ].filter(v => v !== null && v !== undefined).join(' '));
+    return words.every(w => haystack.includes(w));
+  };
+
+  // Rango de fechas sobre la fecha de ingreso del trabajo (comparación de strings ISO YYYY-MM-DD)
+  const jobMatchesDates = (job: Job) => {
+    const fecha = ((job as any).fecha || '').split('T')[0];
+    if (fechaDesde && (!fecha || fecha < fechaDesde)) return false;
+    if (fechaHasta && (!fecha || fecha > fechaHasta)) return false;
+    return true;
+  };
+
+  const getJobSpecs = (job: Job): JobSpec[] =>
+    SPEC_FIELDS.map(f => ({ label: f.label, nombre: specNames[(job as any)[f.key]] || null, color: f.color }));
+
   // Aplica el cambio de estado en la base. Separado de handleMoveJob para poder
   // llamarlo recién después de confirmar el cobro obligatorio (ver JobCompletionPaymentModal).
   const applyStatusUpdate = async (job: Job, newStatus: string) => {
@@ -84,7 +150,7 @@ const KanbanPage: React.FC = () => {
       const approvalStatuses = ['APROBADO', 'EN PRODUCCIÓN', 'TERMINADO', 'ENTREGADO'];
       if (approvalStatuses.includes(newStatus) && !updateData.fecha_aprobacion) {
         // We set it only if it wasn't set before
-        updateData.fecha_aprobacion = new Date().toISOString().split('T')[0];
+        updateData.fecha_aprobacion = todayAR();
       }
       if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_pase_produccion = new Date().toISOString();
       if (newStatus === 'TERMINADO') updateData.fecha_prod_fin = new Date().toISOString();
@@ -126,6 +192,31 @@ const KanbanPage: React.FC = () => {
     const { job, targetStatus } = completionPayment;
     setCompletionPayment(null);
     await applyStatusUpdate(job, targetStatus);
+  };
+
+  const handleDuplicateJob = async (job: Job) => {
+    try {
+      const { data, error } = await supabase.rpc('duplicar_trabajo', {
+        p_trabajo_id: job.id,
+        p_usuario_id: user?.id || null
+      });
+      if (error) throw error;
+
+      const nuevo = data?.[0];
+      const actualizados = Number(nuevo?.items_precio_actualizado || 0);
+      toast.success(
+        actualizados > 0
+          ? `Trabajo duplicado como presupuesto. ${actualizados} ítem(s) con el precio actualizado del catálogo.`
+          : 'Trabajo duplicado como presupuesto.'
+      );
+      await fetchJobs();
+      if (nuevo?.nuevo_trabajo_id) {
+        setSelectedJobId(nuevo.nuevo_trabajo_id);
+        setIsModalOpen(true);
+      }
+    } catch (error: any) {
+      toast.error('Error al duplicar: ' + error.message);
+    }
   };
 
   const handleDeleteJob = async (job: Job) => {
@@ -215,10 +306,55 @@ const KanbanPage: React.FC = () => {
     return null;
   };
 
+  // Lista filtrada de la vista Tabla + paginado (todo en el frontend: ya se cargan todos los trabajos,
+  // y la búsqueda necesita los nombres de specs resueltos en el cliente)
+  const tableJobs = jobs
+    .filter(j => jobMatchesSearch(j) && jobMatchesDates(j))
+    .filter(j => {
+      if (statusFilter !== 'all' && j.estado !== statusFilter) return false;
+      if (pendingOnly && (j.saldo_pendiente || 0) <= 0) return false;
+      if (deadlineFilter === 'all') return true;
+      if (j.estado === 'ENTREGADO') return false;
+      const status = getDueDateStatus(j.fecha_entrega);
+      if (deadlineFilter === 'overdue') return status === 'OVERDUE';
+      if (deadlineFilter === 'due_soon') return status === 'DUE_SOON';
+      return true;
+    });
+  const totalPages = Math.max(1, Math.ceil(tableJobs.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedJobs = tableJobs.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  // Al cambiar cualquier filtro o el tamaño de página, volver a la primera página
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, fechaDesde, fechaHasta, statusFilter, pendingOnly, deadlineFilter, pageSize]);
+
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-8 animate-in fade-in duration-700 pb-20">
       {/* Top Header Actions */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+      <div className="space-y-5">
+        {/* Fila 1: buscador + acción principal */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+          <div className="relative flex-1 group">
+            <span className="absolute left-5 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline group-focus-within:text-primary transition-colors">search</span>
+            <input
+              type="text"
+              placeholder="Buscar por cliente, descripción, estado, fecha, total, especificaciones, observaciones..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-surface-container-low border border-outline-variant/5 rounded-2xl py-3.5 pl-14 pr-6 text-sm font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-sm"
+            />
+          </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all text-sm"
+          >
+            <span className="material-symbols-outlined text-[1.2rem]">add</span>
+            Nuevo Trabajo
+          </button>
+        </div>
+
+        {/* Fila 2: vista y filtros */}
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex bg-surface-container-low p-1.5 rounded-2xl w-fit border border-outline-variant/10">
             <button
@@ -272,6 +408,35 @@ const KanbanPage: React.FC = () => {
             </select>
           </div>
 
+          {/* Date range filter (fecha de ingreso) */}
+          <div className="bg-surface-container-low/50 p-1.5 rounded-2xl border border-outline-variant/10 flex items-center gap-2 px-4">
+            <span className="text-[10px] font-black tracking-widest uppercase text-on-surface-variant">Ingreso</span>
+            <input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              title="Desde"
+              className="bg-transparent border-none text-xs font-bold outline-none cursor-pointer py-1.5"
+            />
+            <span className="text-outline">→</span>
+            <input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              title="Hasta"
+              className="bg-transparent border-none text-xs font-bold outline-none cursor-pointer py-1.5"
+            />
+            {(fechaDesde || fechaHasta) && (
+              <button
+                onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
+                title="Limpiar fechas"
+                className="material-symbols-outlined text-lg text-outline hover:text-error transition-colors"
+              >
+                close
+              </button>
+            )}
+          </div>
+
           {/* Pending Balance Toggle */}
           <button
             onClick={() => setPendingOnly(!pendingOnly)}
@@ -279,26 +444,6 @@ const KanbanPage: React.FC = () => {
           >
             <span className="material-symbols-outlined text-[1.2rem]">{pendingOnly ? 'money_off' : 'payments'}</span>
             SOLO DEUDA
-          </button>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
-          <div className="relative w-full sm:w-72 group">
-            <span className="absolute left-5 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline group-focus-within:text-primary transition-colors">search</span>
-            <input
-              type="text"
-              placeholder="Buscar cliente o pedido..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-surface-container-low border border-outline-variant/5 rounded-2xl py-3 pl-14 pr-6 text-sm font-bold focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-sm"
-            />
-          </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all text-sm"
-          >
-            <span className="material-symbols-outlined text-[1.2rem]">add</span>
-            Nuevo Trabajo
           </button>
         </div>
       </div>
@@ -315,12 +460,7 @@ const KanbanPage: React.FC = () => {
             if (statusFilter !== 'all' && col.status !== statusFilter) return null;
 
             const colJobs = jobs.filter(j => (j.estado || 'PRESUPUESTADO').toUpperCase() === col.status)
-              .filter(j => {
-                const clientName = (j as any).cliente_nombre;
-                const matchSearch = (clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  j.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
-                return matchSearch;
-              })
+              .filter(j => jobMatchesSearch(j) && jobMatchesDates(j))
               .filter(j => {
                 if (statusFilter !== 'all' && j.estado !== statusFilter) return false;
                 if (pendingOnly && (j.saldo_pendiente || 0) <= 0) return false;
@@ -399,6 +539,16 @@ const KanbanPage: React.FC = () => {
                             title="Editar trabajo"
                           >
                             <span className="material-symbols-outlined text-[18px]">edit</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDuplicateJob(job);
+                            }}
+                            className="p-1 hover:bg-primary/10 text-outline hover:text-primary rounded-md transition-all"
+                            title="Duplicar como nuevo presupuesto"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">content_copy</span>
                           </button>
                           <button
                             onClick={(e) => {
@@ -551,11 +701,12 @@ const KanbanPage: React.FC = () => {
       ) : (
         <div className="bg-white rounded-[2rem] border border-outline-variant/10 overflow-hidden shadow-sm">
           <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[900px]">
+            <table className="w-full text-left border-collapse min-w-[1050px]">
               <thead>
                 <tr className="bg-surface-container-low/50">
                   <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Cliente</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Descripción</th>
+                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Specs</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Total</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Ingreso / Caducidad</th>
                   <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Entrega</th>
@@ -564,21 +715,14 @@ const KanbanPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/5">
-                {jobs.filter(j => {
-                  const clientName = (j as any).cliente_nombre;
-                  return (clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    j.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
-                })
-                  .filter(j => {
-                    if (statusFilter !== 'all' && j.estado !== statusFilter) return false;
-                    if (pendingOnly && (j.saldo_pendiente || 0) <= 0) return false;
-                    if (deadlineFilter === 'all') return true;
-                    if (j.estado === 'ENTREGADO') return false;
-                    const status = getDueDateStatus(j.fecha_entrega);
-                    if (deadlineFilter === 'overdue') return status === 'OVERDUE';
-                    if (deadlineFilter === 'due_soon') return status === 'DUE_SOON';
-                    return true;
-                  })
+                {tableJobs.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-20 text-center text-outline/40 italic text-sm">
+                      No hay trabajos que coincidan con los filtros
+                    </td>
+                  </tr>
+                )}
+                {pagedJobs
                   .map(job => {
                     const currentStatus = (job.estado || 'EN PRODUCCIÓN').toUpperCase();
                     const col = columns.find(c => c.status === currentStatus) || columns[0];
@@ -592,6 +736,39 @@ const KanbanPage: React.FC = () => {
                           <p className="text-[10px] text-outline font-medium">#{job.id.slice(0, 8).toUpperCase()}</p>
                         </td>
                         <td className="px-6 py-5 text-sm text-on-surface-variant max-w-xs truncate">{job.descripcion}</td>
+                        <td className="px-6 py-5">
+                          {(() => {
+                            const specs = getJobSpecs(job);
+                            const cargadas = specs.filter(s => s.nombre);
+                            const visibles = cargadas.slice(0, 3);
+                            const extra = cargadas.length - visibles.length;
+                            return (
+                              <div
+                                className="flex items-center w-fit cursor-help"
+                                onMouseEnter={(e) => {
+                                  const r = e.currentTarget.getBoundingClientRect();
+                                  setSpecTip({ x: r.left, y: r.bottom + 6, specs });
+                                }}
+                                onMouseLeave={() => setSpecTip(null)}
+                              >
+                                {cargadas.length === 0 && <span className="text-outline/40 text-sm">---</span>}
+                                {visibles.map((s, i) => (
+                                  <span
+                                    key={s.label}
+                                    className={`w-8 h-8 rounded-full ring-2 ring-white flex items-center justify-center text-[10px] font-black text-white ${s.color} ${i > 0 ? '-ml-2' : ''}`}
+                                  >
+                                    {s.nombre!.slice(0, 2)}
+                                  </span>
+                                ))}
+                                {extra > 0 && (
+                                  <span className="w-8 h-8 rounded-full ring-2 ring-white -ml-2 flex items-center justify-center text-[10px] font-black bg-slate-200 text-slate-600">
+                                    +{extra}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="px-6 py-5">
                           <p className="text-sm font-black text-on-surface">${Number(job.total).toLocaleString('es-AR')}</p>
                           {Number(job.saldo_pendiente) > 0 && (
@@ -659,6 +836,15 @@ const KanbanPage: React.FC = () => {
                               <span className="material-symbols-outlined text-lg">edit</span>
                             </button>
 
+                            {/* Duplicate Action */}
+                            <button
+                              onClick={() => handleDuplicateJob(job)}
+                              title="Duplicar como nuevo presupuesto"
+                              className="p-2 hover:bg-primary/10 text-primary/60 hover:text-primary rounded-lg transition-all"
+                            >
+                              <span className="material-symbols-outlined text-lg">content_copy</span>
+                            </button>
+
                             {currentStatus === 'TERMINADO' && (
                               <button
                                 onClick={() => {
@@ -701,6 +887,64 @@ const KanbanPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Paginado */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-8 py-4 border-t border-outline-variant/10 bg-surface-container-low/30">
+            <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">
+              {tableJobs.length === 0
+                ? 'Sin resultados'
+                : `Mostrando ${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, tableJobs.length)} de ${tableJobs.length}`}
+            </p>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">
+                Por página
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="bg-white border border-outline-variant/10 rounded-lg px-2 py-1 text-xs font-bold outline-none cursor-pointer"
+                >
+                  {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={safePage === 1}
+                  title="Primera página"
+                  className="material-symbols-outlined text-lg p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  first_page
+                </button>
+                <button
+                  onClick={() => setPage(safePage - 1)}
+                  disabled={safePage === 1}
+                  title="Anterior"
+                  className="material-symbols-outlined text-lg p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  chevron_left
+                </button>
+                <span className="px-3 text-xs font-black text-on-surface whitespace-nowrap">
+                  Página {safePage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(safePage + 1)}
+                  disabled={safePage === totalPages}
+                  title="Siguiente"
+                  className="material-symbols-outlined text-lg p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  chevron_right
+                </button>
+                <button
+                  onClick={() => setPage(totalPages)}
+                  disabled={safePage === totalPages}
+                  title="Última página"
+                  className="material-symbols-outlined text-lg p-1.5 rounded-lg hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                >
+                  last_page
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -727,6 +971,24 @@ const KanbanPage: React.FC = () => {
           }}
           onSuccess={fetchJobs}
         />
+      )}
+
+      {/* Tooltip de especificaciones técnicas (hover en la columna Specs) */}
+      {specTip && (
+        <div
+          className="fixed z-[90] bg-slate-900 text-white rounded-2xl shadow-2xl px-4 py-3 pointer-events-none space-y-1"
+          style={{ left: Math.min(specTip.x, window.innerWidth - 260), top: specTip.y }}
+        >
+          {specTip.specs.map(s => (
+            <div key={s.label} className="flex justify-between items-center gap-6 text-[11px]">
+              <span className="font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${s.color}`}></span>
+                {s.label}
+              </span>
+              <span className="font-bold">{s.nombre || '—'}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Cobro obligatorio al pasar a TERMINADO/ENTREGADO con saldo pendiente */}

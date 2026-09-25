@@ -14,7 +14,7 @@ interface ConfigTable {
   tableName: string;
   displayName: string;
   icon: string;
-  category: 'Producción' | 'Logística' | 'Finanzas' | 'Clientes';
+  category: 'Producción' | 'Logística' | 'Finanzas' | 'Clientes' | 'Presupuestos';
   description: string;
 }
 
@@ -29,6 +29,7 @@ const CONFIG_TABLES: ConfigTable[] = [
   { id: 'entrega', tableName: 't_conf_tipos_entrega', displayName: 'Estrategias de Entrega', icon: 'local_shipping', category: 'Logística', description: 'Métodos de envío y retiro' },
   { id: 'gasto', tableName: 't_conf_tipos_gasto', displayName: 'Categorías de Gasto', icon: 'account_balance_wallet', category: 'Finanzas', description: 'Clasificación para facturas de compra' },
   { id: 'rubros', tableName: 't_conf_rubros_cliente', displayName: 'Rubros de Clientes', icon: 'domain', category: 'Clientes', description: 'Rubros/industrias para clasificar clientes' },
+  { id: 'condiciones', tableName: 't_conf_condiciones_presupuesto', displayName: 'Condiciones del Presupuesto', icon: 'rule', category: 'Presupuestos', description: 'Condiciones que se pueden tildar en un presupuesto (IVA, diseño, seña, etc.)' },
 ];
 
 const ConfigDropdownPage: React.FC = () => {
@@ -135,7 +136,7 @@ const ConfigDropdownPage: React.FC = () => {
         </div>
 
         <nav className="flex-1 overflow-y-auto no-scrollbar px-4 space-y-8">
-          {['Producción', 'Logística', 'Finanzas', 'Clientes'].map((cat) => (
+          {['Producción', 'Logística', 'Finanzas', 'Clientes', 'Presupuestos'].map((cat) => (
             <div key={cat} className="space-y-2">
               <h3 className="px-4 text-[10px] font-black text-outline uppercase tracking-[0.2em]">{cat}</h3>
               <div className="space-y-1">
