@@ -5,6 +5,8 @@ import { toast } from 'react-hot-toast';
 import { useForm } from 'react-hook-form';
 import { printJobVoucher, buildJobVoucherDoc } from '../utils/printJob';
 import JobPdfPreviewModal from './JobPdfPreviewModal';
+import ClientModal from './ClientModal';
+import CostCalculatorModal, { type Costeo } from './CostCalculatorModal';
 import type { jsPDF } from 'jspdf';
 
 interface JobModalProps {
@@ -49,6 +51,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
   // Client search combobox state
   const [clientSearch, setClientSearch] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const [isNewClientOpen, setIsNewClientOpen] = useState(false);
+  const [calcTarget, setCalcTarget] = useState<{ source: 'current' } | { source: 'row'; index: number } | null>(null);
 
   const [isManualItem, setIsManualItem] = useState(false);
   const [currentItem, setCurrentItem] = useState<any>({
@@ -59,7 +63,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
     subtotal: 0,
     numeracion_desde: '',
     numeracion_hasta: '',
-    fecha_muestra: ''
+    fecha_muestra: '',
+    costeo: null
   });
 
   const fetchLookups = useCallback(async () => {
@@ -238,9 +243,57 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       subtotal: item.subtotal,
       numeracion_desde: item.numeracion_desde || '',
       numeracion_hasta: item.numeracion_hasta || '',
-      fecha_muestra: item.fecha_muestra || ''
+      fecha_muestra: item.fecha_muestra || '',
+      costeo: item.costeo || null
     });
     removeItem(index);
+  };
+
+  // ---- Calculadora de costos internos (el desglose NUNCA va al PDF ni al cliente) ----
+  // Costo de un desglose con la misma regla que el servidor (round por componente): solo para vista previa.
+  const costoDeCosteo = (c: any): number =>
+    (c?.componentes || []).reduce(
+      (sum: number, comp: any) => sum + Math.round((Number(comp.cantidad) || 0) * (Number(comp.costo_unitario) || 0) * 100) / 100,
+      0
+    );
+
+  const openCalculatorForCurrent = () => {
+    const nombre = isManualItem ? currentItem.nombre : productos.find(p => p.id === currentItem.producto_id)?.nombre;
+    if (!nombre || !String(nombre).trim()) {
+      toast.error('Elegí el producto (o escribí el nombre del ítem) antes de calcular su precio');
+      return;
+    }
+    if (!currentItem.cantidad || Number(currentItem.cantidad) <= 0) {
+      toast.error('Ingresá la cantidad antes de calcular el precio');
+      return;
+    }
+    setCalcTarget({ source: 'current' });
+  };
+
+  const handleApplyCosteo = (costeo: Costeo | null, precioTotal: number | null) => {
+    if (!calcTarget) return;
+    const cantidad = calcTarget.source === 'current' ? Number(currentItem.cantidad) : Number(items[calcTarget.index]?.cantidad);
+    // El precio unitario se deduce del precio total sugerido para que cantidad × unitario = precio de la línea
+    const nuevoUnitario = precioTotal !== null && cantidad > 0 ? Number((precioTotal / cantidad).toFixed(6)) : null;
+
+    if (calcTarget.source === 'current') {
+      updateCurrentItem({
+        costeo,
+        ...(nuevoUnitario !== null ? { precio_unitario: nuevoUnitario } : {}),
+      });
+    } else {
+      const index = calcTarget.index;
+      const nextItems = items.map((it, i) => {
+        if (i !== index) return it;
+        const precio = nuevoUnitario !== null ? nuevoUnitario : Number(it.precio_unitario) || 0;
+        return { ...it, costeo, precio_unitario: precio, subtotal: precio * (Number(it.cantidad) || 0) };
+      });
+      setItems(nextItems);
+      setValue('total', nextItems.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0));
+    }
+    setCalcTarget(null);
+    if (costeo === null) toast.success('Desglose interno quitado');
+    else toast.success('Precio actualizado con el desglose interno (el cliente no lo ve)');
   };
 
   const addItem = () => {
@@ -279,7 +332,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
       subtotal: 0,
       numeracion_desde: '',
       numeracion_hasta: '',
-      fecha_muestra: ''
+      fecha_muestra: '',
+      costeo: null
     });
   };
 
@@ -330,7 +384,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
             precio_unitario: item.precio_unitario,
             numeracion_desde: item.numeracion_desde || null,
             numeracion_hasta: item.numeracion_hasta || null,
-            fecha_muestra: item.fecha_muestra || null
+            fecha_muestra: item.fecha_muestra || null,
+            costeo: item.costeo || null
           }));
           const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
           if (itemsErr) throw itemsErr;
@@ -373,7 +428,8 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
             precio_unitario: item.precio_unitario,
             numeracion_desde: item.numeracion_desde || null,
             numeracion_hasta: item.numeracion_hasta || null,
-            fecha_muestra: item.fecha_muestra || null
+            fecha_muestra: item.fecha_muestra || null,
+            costeo: item.costeo || null
           }));
 
           const { error: itemsErr } = await supabase.from('t_trabajo_productos').insert(itemRows);
@@ -613,6 +669,18 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                         .filter(c => c.razon_social.toLowerCase().includes(clientSearch.toLowerCase())).length === 0 && (
                         <p className="px-4 py-3 text-xs text-outline/50 italic">Sin resultados</p>
                       )}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setIsClientDropdownOpen(false);
+                          setIsNewClientOpen(true);
+                        }}
+                        className="sticky bottom-0 w-full flex items-center gap-2 text-left px-4 py-3 text-sm font-black text-primary bg-white border-t border-outline-variant/10 hover:bg-primary/5 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-lg">person_add</span>
+                        {clientSearch.trim() ? `Crear cliente "${clientSearch.trim()}"` : 'Crear cliente nuevo'}
+                      </button>
                     </div>
                   )}
                   {errors.cliente_id && <p className="text-[10px] text-error font-bold mt-1 ml-1">Requerido</p>}
@@ -754,7 +822,16 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                       className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-4 text-sm font-black focus:ring-2 focus:ring-primary/20"
                     />
                   </div>
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-2 flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      onClick={openCalculatorForCurrent}
+                      title="Calcular el precio a partir de los costos internos (el cliente no lo ve)"
+                      className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${currentItem.costeo ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">calculate</span>
+                      {currentItem.costeo ? 'Desglose cargado' : 'Calcular precio'}
+                    </button>
                     <button
                       type="button"
                       onClick={addItem}
@@ -833,6 +910,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             {!item.producto_id && (
                               <p className="text-[8px] uppercase text-outline">Ítem manual</p>
                             )}
+                            {item.costeo && (
+                              <span
+                                title="Este ítem tiene un desglose de costos interno. El cliente no lo ve."
+                                className="inline-flex items-center gap-1 mt-1 text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded"
+                              >
+                                <span className="material-symbols-outlined text-[10px]">calculate</span> Costeo interno
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-center">
                             {item.cantidad}
@@ -859,6 +944,14 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                             <div className="flex items-center justify-center gap-3">
                               <button
                                 type="button"
+                                onClick={() => setCalcTarget({ source: 'row', index: idx })}
+                                title="Calcular precio / desglose de costos interno"
+                                className="text-amber-600 hover:scale-125 transition-transform"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">calculate</span>
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => startEditItem(item, idx)}
                                 title="Editar cantidad/precio"
                                 className="text-primary hover:scale-125 transition-transform"
@@ -881,6 +974,51 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
                   </table>
                 </div>
               )}
+
+              {/* Resumen de costos internos: solo pantalla, nunca en el PDF ni en el comprobante */}
+              {(() => {
+                const conCosteo = items.filter(it => it.costeo);
+                if (conCosteo.length === 0) return null;
+                const venta = conCosteo.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+                const costo = conCosteo.reduce((sum, it) => sum + costoDeCosteo(it.costeo), 0);
+                const ganancia = venta - costo;
+                const margenReal = venta > 0 ? (ganancia / venta) * 100 : null;
+                const fmt = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+                return (
+                  <div className="p-5 rounded-3xl bg-amber-50/60 border border-amber-200 space-y-3">
+                    <div className="flex items-center gap-2 text-amber-800">
+                      <span className="material-symbols-outlined text-lg">calculate</span>
+                      <h5 className="text-[10px] font-black uppercase tracking-widest">Costeo interno · solo para vos</h5>
+                      <span className="text-[9px] font-bold text-amber-700/70">
+                        {conCosteo.length} de {items.length} ítem(s) con desglose
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-700/70">Venta (ítems con desglose)</p>
+                        <p className="text-sm font-black text-on-surface">{fmt(venta)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-700/70">Costo interno</p>
+                        <p className="text-sm font-black text-on-surface">{fmt(costo)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-700/70">Ganancia estimada</p>
+                        <p className={`text-sm font-black ${ganancia < 0 ? 'text-error' : 'text-emerald-600'}`}>{fmt(ganancia)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-amber-700/70">Margen sobre la venta</p>
+                        <p className={`text-sm font-black ${ganancia < 0 ? 'text-error' : 'text-emerald-600'}`}>
+                          {margenReal === null ? '—' : `${margenReal.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-[9px] font-bold text-amber-700/70">
+                      Vista previa. No aparece en el presupuesto ni en el comprobante del cliente. Se recalcula en el servidor al guardar.
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Section: Technical Specs (Global for the work) */}
@@ -1182,6 +1320,37 @@ const JobModal: React.FC<JobModalProps> = ({ jobId, onClose, onSuccess }) => {
         </div>
       </div>
     </div>
+
+    {calcTarget && (
+      <CostCalculatorModal
+        itemLabel={
+          calcTarget.source === 'current'
+            ? (isManualItem ? currentItem.nombre : productos.find(p => p.id === currentItem.producto_id)?.nombre) || 'Ítem'
+            : items[calcTarget.index]?.nombre || 'Ítem'
+        }
+        cantidadItem={
+          calcTarget.source === 'current' ? Number(currentItem.cantidad) || 0 : Number(items[calcTarget.index]?.cantidad) || 0
+        }
+        initialCosteo={calcTarget.source === 'current' ? currentItem.costeo : items[calcTarget.index]?.costeo}
+        onApply={handleApplyCosteo}
+        onClose={() => setCalcTarget(null)}
+      />
+    )}
+
+    {isNewClientOpen && (
+      <ClientModal
+        initialNombre={clientSearch}
+        onClose={() => setIsNewClientOpen(false)}
+        onSuccess={(created) => {
+          if (!created) return;
+          // Sumarlo a la lista local y dejarlo seleccionado, sin recargar todos los catálogos
+          setClientes(prev => [...prev, { id: created.id, razon_social: created.razon_social, nombre: null, activo: true }]
+            .sort((a, b) => String(a.razon_social).localeCompare(String(b.razon_social), 'es')));
+          setValue('cliente_id', created.id, { shouldValidate: true });
+          setClientSearch(created.razon_social);
+        }}
+      />
+    )}
 
     {previewPdf && (
       <JobPdfPreviewModal

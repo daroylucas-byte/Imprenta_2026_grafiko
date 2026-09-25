@@ -1,19 +1,22 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import KanbanPage from './pages/KanbanPage';
-import ClientsPage from './pages/ClientsPage';
-import SuppliersPage from './pages/SuppliersPage';
-import BillingPage from './pages/BillingPage';
-import ConfigDropdownPage from './pages/ConfigDropdownPage';
-import ProductsPage from './pages/ProductsPage';
-import CashRegisterPage from './pages/CashRegisterPage';
-import PromotionsPage from './pages/PromotionsPage';
-import ClientCampaignsPage from './pages/ClientCampaignsPage';
-import ArcaConfigPage from './pages/ArcaConfigPage';
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const KanbanPage = lazy(() => import('./pages/KanbanPage'));
+const ClientsPage = lazy(() => import('./pages/ClientsPage'));
+const SuppliersPage = lazy(() => import('./pages/SuppliersPage'));
+const InsumosPage = lazy(() => import('./pages/InsumosPage'));
+const PurchasesPage = lazy(() => import('./pages/PurchasesPage'));
+const BillingPage = lazy(() => import('./pages/BillingPage'));
+const ConfigDropdownPage = lazy(() => import('./pages/ConfigDropdownPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const CashRegisterPage = lazy(() => import('./pages/CashRegisterPage'));
+const PromotionsPage = lazy(() => import('./pages/PromotionsPage'));
+const ClientCampaignsPage = lazy(() => import('./pages/ClientCampaignsPage'));
+const ArcaConfigPage = lazy(() => import('./pages/ArcaConfigPage'));
+const ServiciosPage = lazy(() => import('./pages/ServiciosPage'));
 import Layout from './components/Layout';
 
 function App() {
@@ -32,6 +35,7 @@ function App() {
   }
 
   return (
+    <Suspense fallback={<div className="min-h-screen bg-surface flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>}>
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
@@ -59,6 +63,11 @@ function App() {
       />
 
       <Route
+        path="/insumos"
+        element={user ? <Layout title="Insumos y Stock"><InsumosPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
         path="/productos"
         element={user ? <Layout title="Gestión de Productos"><ProductsPage /></Layout> : <Navigate to="/login" />}
       />
@@ -69,6 +78,11 @@ function App() {
       />
 
       <Route
+        path="/compras"
+        element={user ? <Layout title="Compras"><PurchasesPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
         path="/configuracion"
         element={user ? <Layout title="Configuración Sistema"><ConfigDropdownPage /></Layout> : <Navigate to="/login" />}
       />
@@ -76,6 +90,11 @@ function App() {
       <Route
         path="/configuracion/arca"
         element={user ? <Layout title="Configuración ARCA/AFIP"><ArcaConfigPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/configuracion/servicios"
+        element={user ? <Layout title="Servicios y Costeo"><ServiciosPage /></Layout> : <Navigate to="/login" />}
       />
 
       <Route
@@ -114,6 +133,7 @@ function App() {
         }
       />
     </Routes>
+    </Suspense>
   );
 }
 

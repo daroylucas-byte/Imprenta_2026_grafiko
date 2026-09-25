@@ -14,7 +14,7 @@ interface ConfigTable {
   tableName: string;
   displayName: string;
   icon: string;
-  category: 'Producción' | 'Logística' | 'Finanzas' | 'Clientes' | 'Presupuestos';
+  category: 'Producción' | 'Logística' | 'Finanzas' | 'Clientes' | 'Presupuestos' | 'Compras';
   description: string;
 }
 
@@ -30,6 +30,8 @@ const CONFIG_TABLES: ConfigTable[] = [
   { id: 'gasto', tableName: 't_conf_tipos_gasto', displayName: 'Categorías de Gasto', icon: 'account_balance_wallet', category: 'Finanzas', description: 'Clasificación para facturas de compra' },
   { id: 'rubros', tableName: 't_conf_rubros_cliente', displayName: 'Rubros de Clientes', icon: 'domain', category: 'Clientes', description: 'Rubros/industrias para clasificar clientes' },
   { id: 'condiciones', tableName: 't_conf_condiciones_presupuesto', displayName: 'Condiciones del Presupuesto', icon: 'rule', category: 'Presupuestos', description: 'Condiciones que se pueden tildar en un presupuesto (IVA, diseño, seña, etc.)' },
+  { id: 'unidades', tableName: 't_conf_unidades_medida', displayName: 'Unidades de Medida', icon: 'scale', category: 'Compras', description: 'Unidades para insumos (Resma, Hoja, Kilo, Litro, Caja, etc.)' },
+  { id: 'categorias_insumo', tableName: 't_conf_categorias_insumo', displayName: 'Categorías de Insumos', icon: 'category', category: 'Compras', description: 'Agrupación de insumos (Papel, Tintas, Planchas, Químicos, etc.)' },
 ];
 
 const ConfigDropdownPage: React.FC = () => {
@@ -136,7 +138,7 @@ const ConfigDropdownPage: React.FC = () => {
         </div>
 
         <nav className="flex-1 overflow-y-auto no-scrollbar px-4 space-y-8">
-          {['Producción', 'Logística', 'Finanzas', 'Clientes', 'Presupuestos'].map((cat) => (
+          {['Producción', 'Logística', 'Finanzas', 'Clientes', 'Presupuestos', 'Compras'].map((cat) => (
             <div key={cat} className="space-y-2">
               <h3 className="px-4 text-[10px] font-black text-outline uppercase tracking-[0.2em]">{cat}</h3>
               <div className="space-y-1">
@@ -172,6 +174,15 @@ const ConfigDropdownPage: React.FC = () => {
                   receipt_long
                 </span>
                 <span className="text-sm font-bold tracking-tight">Facturación ARCA/AFIP</span>
+              </Link>
+              <Link
+                to="/configuracion/servicios"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group text-on-surface-variant hover:bg-surface-container-high"
+              >
+                <span className="material-symbols-outlined text-xl group-hover:scale-110 transition-transform">
+                  calculate
+                </span>
+                <span className="text-sm font-bold tracking-tight">Servicios y Costeo</span>
               </Link>
             </div>
           </div>

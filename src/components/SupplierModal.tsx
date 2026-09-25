@@ -5,8 +5,11 @@ import { useForm } from 'react-hook-form';
 
 interface SupplierModalProps {
   supplierId?: string;
+  /** Alta rápida desde otra pantalla (ej. Compras): pre-carga el nombre con lo que el usuario ya había tipeado. */
+  initialNombre?: string;
   onClose: () => void;
-  onSuccess: () => void;
+  /** En un alta, recibe el proveedor creado (para poder seleccionarlo automáticamente). */
+  onSuccess: (created?: { id: string; nombre: string }) => void;
 }
 
 interface SupplierFormValues {
@@ -23,7 +26,7 @@ interface SupplierFormValues {
   limite_credito: number | string;
 }
 
-const SupplierModal: React.FC<SupplierModalProps> = ({ supplierId, onClose, onSuccess }) => {
+const SupplierModal: React.FC<SupplierModalProps> = ({ supplierId, initialNombre, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
 
@@ -35,7 +38,7 @@ const SupplierModal: React.FC<SupplierModalProps> = ({ supplierId, onClose, onSu
     formState: { errors }
   } = useForm<SupplierFormValues>({
     defaultValues: {
-      nombre: '',
+      nombre: initialNombre?.trim() || '',
       razon_social: '',
       cuit: '',
       contacto: '',
@@ -145,12 +148,17 @@ const SupplierModal: React.FC<SupplierModalProps> = ({ supplierId, onClose, onSu
         if (error) throw error;
         toast.success('Proveedor actualizado correctamente');
       } else {
-        const { error } = await supabase
+        const { data: created, error } = await supabase
           .from('t_proveedores')
-          .insert([payload]);
+          .insert([payload])
+          .select('id, nombre')
+          .single();
 
         if (error) throw error;
         toast.success('Proveedor registrado correctamente');
+        onSuccess(created ?? undefined);
+        onClose();
+        return;
       }
 
       onSuccess();

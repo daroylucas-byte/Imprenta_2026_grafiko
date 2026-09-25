@@ -5,8 +5,11 @@ import { useForm } from 'react-hook-form';
 
 interface ClientModalProps {
   clientId?: string;
+  /** Alta rápida desde otra pantalla: pre-carga la razón social con lo que el usuario ya había tipeado. */
+  initialNombre?: string;
   onClose: () => void;
-  onSuccess: () => void;
+  /** En un alta, recibe el cliente creado (para poder seleccionarlo automáticamente). */
+  onSuccess: (created?: { id: string; razon_social: string }) => void;
 }
 
 const SITUACIONES_IVA = [
@@ -17,8 +20,10 @@ const SITUACIONES_IVA = [
   'Sujeto no Categorizado'
 ];
 
-const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess }) => {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm();
+const ClientModal: React.FC<ClientModalProps> = ({ clientId, initialNombre, onClose, onSuccess }) => {
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<Record<string, any>>({
+    defaultValues: initialNombre ? { razon_social: initialNombre.trim() } : undefined,
+  });
   const [loading, setLoading] = useState(false);
   const [rubros, setRubros] = useState<{ id: string; nombre: string }[]>([]);
 
@@ -81,15 +86,20 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, onClose, onSuccess 
         toast.success('Cliente actualizado correctamente');
       } else {
         // INSERT MODE
-        const { error } = await supabase
+        const { data: created, error } = await supabase
           .from('t_clientes')
           .insert([{
             ...sanitizedData,
             created_at: new Date().toISOString(),
-          }]);
+          }])
+          .select('id, razon_social')
+          .single();
 
         if (error) throw error;
         toast.success('Cliente registrado correctamente');
+        onSuccess(created ?? undefined);
+        onClose();
+        return;
       }
       onSuccess();
       onClose();
