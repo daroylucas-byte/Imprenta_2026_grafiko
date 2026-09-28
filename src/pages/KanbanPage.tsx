@@ -62,6 +62,8 @@ const KanbanPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [sortKey, setSortKey] = useState<'cliente' | 'total' | 'fecha' | 'fecha_entrega' | 'estado'>('fecha');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [deadlineFilter, setDeadlineFilter] = useState<'all' | 'due_soon' | 'overdue'>('all');
@@ -308,6 +310,17 @@ const KanbanPage: React.FC = () => {
 
   // Lista filtrada de la vista Tabla + paginado (todo en el frontend: ya se cargan todos los trabajos,
   // y la búsqueda necesita los nombres de specs resueltos en el cliente)
+  const sortValue = (j: any) => {
+    switch (sortKey) {
+      case 'cliente': return (j.cliente_nombre || '').toLowerCase();
+      case 'total': return Number(j.total) || 0;
+      case 'fecha_entrega': return j.fecha_entrega || (sortDir === 'asc' ? '9999' : '0000');
+      case 'estado': return (j.estado || '').toLowerCase();
+      case 'fecha':
+      default: return j.fecha || '0000';
+    }
+  };
+
   const tableJobs = jobs
     .filter(j => jobMatchesSearch(j) && jobMatchesDates(j))
     .filter(j => {
@@ -319,6 +332,12 @@ const KanbanPage: React.FC = () => {
       if (deadlineFilter === 'overdue') return status === 'OVERDUE';
       if (deadlineFilter === 'due_soon') return status === 'DUE_SOON';
       return true;
+    })
+    .sort((a, b) => {
+      const va = sortValue(a);
+      const vb = sortValue(b);
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
     });
   const totalPages = Math.max(1, Math.ceil(tableJobs.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -704,14 +723,35 @@ const KanbanPage: React.FC = () => {
             <table className="w-full text-left border-collapse min-w-[1050px]">
               <thead>
                 <tr className="bg-surface-container-low/50">
-                  <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Cliente</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Descripción</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Specs</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Total</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest whitespace-nowrap">Ingreso / Caducidad</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Entrega</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Estado</th>
-                  <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center whitespace-nowrap">Acciones</th>
+                  {([
+                    ['cliente', 'Cliente', 'text-left', 'px-8'],
+                    [null, 'Descripción', 'text-left', 'px-6'],
+                    [null, 'Specs', 'text-left', 'px-6'],
+                    ['total', 'Total', 'text-left', 'px-6'],
+                    ['fecha', 'Ingreso / Caducidad', 'text-left', 'px-6'],
+                    ['fecha_entrega', 'Entrega', 'text-center', 'px-6'],
+                    ['estado', 'Estado', 'text-center', 'px-6'],
+                    [null, 'Acciones', 'text-center', 'px-8'],
+                  ] as const).map(([key, label, align, pad]) => (
+                    <th
+                      key={label}
+                      onClick={key ? () => {
+                        if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+                        else { setSortKey(key as typeof sortKey); setSortDir(key === 'cliente' || key === 'estado' ? 'asc' : 'desc'); }
+                      } : undefined}
+                      className={`${pad} py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-widest ${align} whitespace-nowrap ${key ? 'cursor-pointer select-none hover:text-primary transition-colors' : ''}`}
+                      title={key ? 'Ordenar' : undefined}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {label}
+                        {key && (
+                          <span className={`material-symbols-outlined text-[14px] ${sortKey === key ? 'text-primary' : 'text-outline/30'}`}>
+                            {sortKey === key ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                          </span>
+                        )}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/5">
