@@ -275,7 +275,11 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
     for (let i = 0; i < componentes.length; i++) {
       const c = componentes[i];
       if (!c.nombre.trim()) {
-        toast.error(`El componente #${i + 1} debe tener un nombre`);
+        if (c.tipo === 'insumo') {
+          toast.error(`El componente #${i + 1}: elegí un insumo de la lista (no alcanza con escribir el texto)`);
+        } else {
+          toast.error(`El componente #${i + 1} debe tener un nombre`);
+        }
         return;
       }
       if (Number(c.cantidad) < 0) {
@@ -490,34 +494,44 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                             </p>
                           )}
 
-                          {comp.isDropdownOpen && (
-                            <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-52 overflow-y-auto">
-                              {insumos
-                                .filter((i) => {
-                                  const q = (comp.insumoSearch || '').toLowerCase();
-                                  return (
-                                    i.nombre.toLowerCase().includes(q) ||
-                                    (i.codigo && i.codigo.toLowerCase().includes(q))
-                                  );
-                                })
-                                .map((i) => (
-                                  <button
-                                    type="button"
-                                    key={i.id}
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      handleSelectInsumo(comp.rowId, i);
-                                    }}
-                                    className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-primary/5 transition-colors border-b border-outline-variant/5 flex justify-between items-center"
-                                  >
-                                    <span>{i.nombre}</span>
-                                    <span className="text-[10px] text-outline">
-                                      Stock: {Number(i.stock).toLocaleString('es-AR')} {i.unidad_stock_nombre}
-                                    </span>
-                                  </button>
-                                ))}
-                            </div>
-                          )}
+                          {comp.isDropdownOpen && (() => {
+                            const q = (comp.insumoSearch || '').toLowerCase();
+                            const matches = insumos.filter(
+                              (i) =>
+                                i.nombre.toLowerCase().includes(q) ||
+                                (i.codigo && i.codigo.toLowerCase().includes(q))
+                            );
+                            return (
+                              <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-52 overflow-y-auto">
+                                {insumos.length === 0 ? (
+                                  <p className="px-3 py-2.5 text-[11px] font-bold text-outline">
+                                    No hay insumos cargados. Creá uno primero en <strong>Insumos</strong>.
+                                  </p>
+                                ) : matches.length === 0 ? (
+                                  <p className="px-3 py-2.5 text-[11px] font-bold text-outline">
+                                    Ningún insumo coincide con "{comp.insumoSearch}".
+                                  </p>
+                                ) : (
+                                  matches.map((i) => (
+                                    <button
+                                      type="button"
+                                      key={i.id}
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        handleSelectInsumo(comp.rowId, i);
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-primary/5 transition-colors border-b border-outline-variant/5 flex justify-between items-center"
+                                    >
+                                      <span>{i.nombre}</span>
+                                      <span className="text-[10px] text-outline">
+                                        Stock: {Number(i.stock).toLocaleString('es-AR')} {i.unidad_stock_nombre}
+                                      </span>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : comp.tipo === 'servicio' || comp.tipo === 'tercerizado' ? (
                         <select
