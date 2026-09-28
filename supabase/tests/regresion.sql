@@ -324,6 +324,25 @@ BEGIN
   SELECT count(*) INTO v_n FROM ventas; n_tests := n_tests + 1;               -- el backend ARCA usa service_role sobre estas vistas
   RESET ROLE;
 
+  -- ================= 15. INVARIANTES DE LA CUENTA CORRIENTE DEL CLIENTE (Fase 2, 2026-09-28) =================
+  -- La plata se aplica al CLIENTE (via t_recibos/t_recibo_trabajos y t_pagos_trabajo); estas dos tablas son
+  -- la base de v_saldo_clientes, la fuente de verdad. Antes de esta fase, la unica proteccion vivia en las
+  -- funciones (registrar_cobro_con_fifo, aplicar_credito_a_trabajos); un insert directo no tenia freno.
+  RESET ROLE;
+  INSERT INTO t_recibos (cliente_id, fecha, numero, total) VALUES (v_cli, hoy_ar(), 'REC-F2-' || gen_random_uuid(), 1000) RETURNING id INTO v_pago;   -- v_pago se reusa como id generico
+  SET LOCAL ROLE authenticated;
+  ok := false; BEGIN INSERT INTO t_recibo_trabajos (recibo_id, trabajo_id, monto_aplicado) VALUES (v_pago, b, 500); EXCEPTION WHEN raise_exception THEN ok := true; END;
+  n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 15a insert directo de t_recibo_trabajos a un trabajo ANULADO debe rechazarse' || E'\n'; END IF;
+  ok := false; BEGIN INSERT INTO t_recibo_trabajos (recibo_id, trabajo_id, monto_aplicado) VALUES (v_pago, a, 1500); EXCEPTION WHEN raise_exception THEN ok := true; END;
+  n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 15b aplicar mas del total del recibo debe rechazarse' || E'\n'; END IF;
+  INSERT INTO t_recibo_trabajos (recibo_id, trabajo_id, monto_aplicado) VALUES (v_pago, a, 1000);
+  ok := ((SELECT count(*) FROM t_recibo_trabajos WHERE recibo_id = v_pago) = 1); n_tests := n_tests + 1;
+  IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 15c una aplicacion valida (dentro del limite, trabajo vigente) debe funcionar' || E'\n'; END IF;
+  ok := false; BEGIN INSERT INTO t_recibo_trabajos (recibo_id, trabajo_id, monto_aplicado) VALUES (v_pago, a, 1); EXCEPTION WHEN raise_exception THEN ok := true; END;
+  n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 15d una segunda aplicacion que ya no tiene margen en el recibo debe rechazarse' || E'\n'; END IF;
+  ok := false; BEGIN INSERT INTO t_pagos_trabajo (trabajo_id, cliente_id, importe, tipo, tipo_pago) VALUES (b, v_cli, 100, 'pago', 'EFECTIVO'); EXCEPTION WHEN raise_exception THEN ok := true; END;
+  n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 15e insert directo de t_pagos_trabajo a un trabajo ANULADO debe rechazarse' || E'\n'; END IF;
+
   RAISE EXCEPTION '%',
     'REGRESION: ' || (n_tests - fails) || ' de ' || n_tests || ' OK, ' || fails || ' FALLA(S)' || E'\n'
     || CASE WHEN fails = 0 THEN 'Todo en orden.' ELSE 'Detalle de fallas:' || E'\n' || r END
