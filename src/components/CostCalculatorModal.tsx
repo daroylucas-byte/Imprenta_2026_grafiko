@@ -313,94 +313,91 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500">
+      <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500">
         {/* Header */}
-        <div className="px-10 py-7 border-b border-outline-variant/10 flex justify-between items-start bg-surface-container-low/30 shrink-0">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-2xl">calculate</span>
-              <h3 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight">
-                Calculadora de Costos
-              </h3>
-            </div>
-            <p className="text-sm font-extrabold text-on-surface mt-1">
-              {itemLabel || 'Ítem del Presupuesto'}
-              {cantidadItem > 0 ? (
-                <span className="ml-2 text-xs font-bold text-outline">
-                  (Cantidad: {cantidadItem.toLocaleString('es-AR')})
+        <div className="px-6 py-3.5 border-b border-outline-variant/10 flex justify-between items-center bg-surface-container-low/30 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="material-symbols-outlined text-primary text-xl shrink-0">calculate</span>
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h3 className="text-base font-headline font-extrabold text-on-surface tracking-tight leading-none">
+                  Calculadora de Costos
+                </h3>
+                <span className="text-xs font-extrabold text-on-surface truncate">
+                  {itemLabel || 'Ítem del Presupuesto'}
+                  {cantidadItem > 0 ? (
+                    <span className="ml-1.5 text-[10px] font-bold text-outline">
+                      (Cant.: {cantidadItem.toLocaleString('es-AR')})
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </p>
-            <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-1 flex items-center gap-1">
-              <span className="material-symbols-outlined text-xs">visibility_off</span>
-              Este desglose es solo interno: el cliente nunca lo ve.
-            </p>
+              </div>
+              <p className="text-[9px] text-outline font-bold uppercase tracking-wider flex items-center gap-1 leading-tight">
+                <span className="material-symbols-outlined text-[11px]">visibility_off</span>
+                Desglose solo interno: el cliente nunca lo ve
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
             title="Cerrar"
-            className="p-2 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-all active:scale-90"
+            className="p-1.5 hover:bg-error/10 text-on-surface-variant hover:text-error rounded-full transition-all active:scale-90 shrink-0"
           >
-            <span className="material-symbols-outlined text-2xl">close</span>
+            <span className="material-symbols-outlined text-xl">close</span>
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto no-scrollbar p-8 sm:p-10 space-y-6">
+        <div className="flex-1 overflow-y-auto no-scrollbar p-4 sm:p-5 space-y-3">
           {/* Botones rápidos para agregar componentes */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-              Agregar Componentes al Costeo
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button
-                type="button"
-                onClick={() => handleAddComponente('insumo')}
-                className="p-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-extrabold transition-all active:scale-95 shadow-sm"
-              >
-                <span className="material-symbols-outlined text-base">inventory_2</span>
-                + Insumo
-              </button>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button
+              type="button"
+              onClick={() => handleAddComponente('insumo')}
+              className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold transition-all active:scale-95 shadow-sm"
+            >
+              <span className="material-symbols-outlined text-sm">inventory_2</span>
+              + Insumo
+            </button>
 
-              <button
-                type="button"
-                onClick={() => handleAddComponente('servicio')}
-                className="p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-extrabold transition-all active:scale-95 shadow-sm"
-              >
-                <span className="material-symbols-outlined text-base">handyman</span>
-                + Servicio propio
-              </button>
+            <button
+              type="button"
+              onClick={() => handleAddComponente('servicio')}
+              className="py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold transition-all active:scale-95 shadow-sm"
+            >
+              <span className="material-symbols-outlined text-sm">handyman</span>
+              + Servicio propio
+            </button>
 
-              <button
-                type="button"
-                onClick={() => handleAddComponente('tercerizado')}
-                className="p-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-extrabold transition-all active:scale-95 shadow-sm"
-              >
-                <span className="material-symbols-outlined text-base">local_shipping</span>
-                + Tercerizado
-              </button>
+            <button
+              type="button"
+              onClick={() => handleAddComponente('tercerizado')}
+              className="py-1.5 px-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold transition-all active:scale-95 shadow-sm"
+            >
+              <span className="material-symbols-outlined text-sm">local_shipping</span>
+              + Tercerizado
+            </button>
 
-              <button
-                type="button"
-                onClick={() => handleAddComponente('otro')}
-                className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-extrabold transition-all active:scale-95 shadow-sm"
-              >
-                <span className="material-symbols-outlined text-base">more_horiz</span>
-                + Otro costo
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleAddComponente('otro')}
+              className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold transition-all active:scale-95 shadow-sm"
+            >
+              <span className="material-symbols-outlined text-sm">more_horiz</span>
+              + Otro costo
+            </button>
           </div>
 
           {/* Lista de Filas de Componentes */}
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {loadingLookups ? (
-              <div className="py-12 flex flex-col items-center justify-center space-y-2 text-primary/40">
-                <div className="w-8 h-8 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
+              <div className="py-8 flex flex-col items-center justify-center space-y-2 text-primary/40">
+                <div className="w-6 h-6 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
                 <p className="text-[10px] font-black uppercase tracking-widest">Cargando catálogo...</p>
               </div>
             ) : componentes.length === 0 ? (
-              <div className="p-8 text-center bg-surface-container-low/40 rounded-3xl border border-dashed border-outline-variant/30 space-y-2">
-                <span className="material-symbols-outlined text-3xl text-outline/60">post_add</span>
+              <div className="p-5 text-center bg-surface-container-low/40 rounded-2xl border border-dashed border-outline-variant/30 space-y-1">
+                <span className="material-symbols-outlined text-2xl text-outline/60">post_add</span>
                 <p className="text-xs font-bold text-on-surface-variant">
                   No hay componentes en el costeo de esta línea.
                 </p>
@@ -409,60 +406,65 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                 </p>
               </div>
             ) : (
-              componentes.map((comp, index) => {
-                const cantNum = Number(comp.cantidad) || 0;
-                const costoNum = Number(comp.costo_unitario) || 0;
-                const subtotal = cantNum * costoNum;
-                const ins = insumos.find((x) => x.id === comp.ref_id);
-                const hasUnidadCompra = Boolean(ins?.unidad_compra_nombre);
-                const factor = Number(ins?.factor_compra) || 1;
+              <>
+                {/* Encabezado de columnas (solo desktop) */}
+                <div className="hidden sm:flex items-center gap-2 px-2.5 text-[9px] font-black text-on-surface-variant uppercase tracking-widest">
+                  <span className="w-4 shrink-0"></span>
+                  <span className="flex-1 min-w-[140px]">Ítem</span>
+                  <span className="w-14 text-center shrink-0">Cant.</span>
+                  <span className="w-28 text-center shrink-0">Unidad</span>
+                  <span className="w-20 text-center shrink-0">Costo unit.</span>
+                  <span className="w-20 text-right shrink-0">Subtotal</span>
+                  <span className="w-5 shrink-0"></span>
+                </div>
 
-                return (
-                  <div
-                    key={comp.rowId}
-                    className="p-4 bg-surface-container-low/40 rounded-2xl border border-outline-variant/10 space-y-2 transition-all hover:border-primary/20"
-                  >
-                    <div className="flex items-center justify-between gap-2 pb-1 border-b border-outline-variant/5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md tracking-wider ${
-                            comp.tipo === 'insumo'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : comp.tipo === 'servicio'
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : comp.tipo === 'tercerizado'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-200 text-slate-800'
-                          }`}
-                        >
-                          {comp.tipo === 'insumo'
-                            ? 'Insumo'
-                            : comp.tipo === 'servicio'
-                            ? 'Servicio taller'
-                            : comp.tipo === 'tercerizado'
-                            ? 'Tercerizado'
-                            : 'Otro'}
-                        </span>
-                        <span className="text-[10px] font-bold text-outline">#{index + 1}</span>
-                      </div>
+                {componentes.map((comp) => {
+                  const cantNum = Number(comp.cantidad) || 0;
+                  const costoNum = Number(comp.costo_unitario) || 0;
+                  const subtotal = cantNum * costoNum;
+                  const ins = insumos.find((x) => x.id === comp.ref_id);
+                  const hasUnidadCompra = Boolean(ins?.unidad_compra_nombre);
+                  const factor = Number(ins?.factor_compra) || 1;
+                  const typeIcon =
+                    comp.tipo === 'insumo'
+                      ? 'inventory_2'
+                      : comp.tipo === 'servicio'
+                      ? 'handyman'
+                      : comp.tipo === 'tercerizado'
+                      ? 'local_shipping'
+                      : 'more_horiz';
+                  const typeColor =
+                    comp.tipo === 'insumo'
+                      ? 'text-emerald-600'
+                      : comp.tipo === 'servicio'
+                      ? 'text-indigo-600'
+                      : comp.tipo === 'tercerizado'
+                      ? 'text-amber-600'
+                      : 'text-slate-500';
+                  const typeLabel =
+                    comp.tipo === 'insumo'
+                      ? 'Insumo'
+                      : comp.tipo === 'servicio'
+                      ? 'Servicio de taller'
+                      : comp.tipo === 'tercerizado'
+                      ? 'Tercerizado'
+                      : 'Otro costo';
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveComponente(comp.rowId)}
-                        title="Quitar componente"
-                        className="p-1 text-on-surface-variant hover:text-error rounded-lg transition-all"
+                  return (
+                    <div
+                      key={comp.rowId}
+                      className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 bg-surface-container-low/40 rounded-xl border border-outline-variant/10 transition-all hover:border-primary/20"
+                    >
+                      <span
+                        className={`material-symbols-outlined text-base shrink-0 ${typeColor}`}
+                        title={typeLabel}
                       >
-                        <span className="material-symbols-outlined text-lg">delete</span>
-                      </button>
-                    </div>
+                        {typeIcon}
+                      </span>
 
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start pt-1">
                       {/* Selección del Ítem según el tipo */}
                       {comp.tipo === 'insumo' ? (
-                        <div className="md:col-span-5 relative space-y-1">
-                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                            Insumo
-                          </label>
+                        <div className="flex-1 min-w-[140px] relative">
                           <input
                             type="text"
                             value={comp.insumoSearch}
@@ -479,8 +481,14 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                               )
                             }
                             placeholder="Buscar insumo..."
-                            className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
+                            className="w-full bg-white border border-outline-variant/10 rounded-lg py-1.5 px-2.5 text-[11px] font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
                           />
+                          {comp.tipo === 'insumo' && ins && comp.en_unidad_compra && factor !== 1 && cantNum > 0 && (
+                            <p className="text-[9px] font-bold text-outline mt-0.5 ml-0.5">
+                              = {(cantNum * factor).toLocaleString('es-AR', { maximumFractionDigits: 3 })}{' '}
+                              {ins.unidad_stock_nombre} de stock
+                            </p>
+                          )}
 
                           {comp.isDropdownOpen && (
                             <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-52 overflow-y-auto">
@@ -512,88 +520,73 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                           )}
                         </div>
                       ) : comp.tipo === 'servicio' || comp.tipo === 'tercerizado' ? (
-                        <div className="md:col-span-5 space-y-1">
-                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                            {comp.tipo === 'servicio' ? 'Servicio de Taller' : 'Servicio Tercerizado'}
-                          </label>
-                          <select
-                            value={comp.ref_id || ''}
-                            onChange={(e) => handleSelectServicio(comp.rowId, e.target.value)}
-                            className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer shadow-sm"
-                          >
-                            <option value="">Seleccionar servicio...</option>
-                              {servicios
-                                .filter((s) => (comp.tipo === 'servicio' ? s.tipo === 'propio' : s.tipo === 'tercerizado'))
-                                .map((s) => {
-                                  const uNombre = Array.isArray(s.t_conf_unidades_medida)
-                                    ? s.t_conf_unidades_medida[0]?.nombre
-                                    : s.t_conf_unidades_medida?.nombre;
-                                  return (
-                                    <option key={s.id} value={s.id}>
-                                      {s.nombre} {uNombre ? `(${uNombre})` : ''} - ${Number(s.costo_unitario).toLocaleString('es-AR')}
-                                    </option>
-                                  );
-                                })}
-                          </select>
-                        </div>
+                        <select
+                          value={comp.ref_id || ''}
+                          onChange={(e) => handleSelectServicio(comp.rowId, e.target.value)}
+                          className="flex-1 min-w-[140px] bg-white border border-outline-variant/10 rounded-lg py-1.5 px-2.5 text-[11px] font-bold text-on-surface focus:ring-2 focus:ring-primary/20 appearance-none cursor-pointer shadow-sm"
+                        >
+                          <option value="">
+                            {comp.tipo === 'servicio' ? 'Seleccionar servicio de taller...' : 'Seleccionar servicio tercerizado...'}
+                          </option>
+                          {servicios
+                            .filter((s) => (comp.tipo === 'servicio' ? s.tipo === 'propio' : s.tipo === 'tercerizado'))
+                            .map((s) => {
+                              const uNombre = Array.isArray(s.t_conf_unidades_medida)
+                                ? s.t_conf_unidades_medida[0]?.nombre
+                                : s.t_conf_unidades_medida?.nombre;
+                              return (
+                                <option key={s.id} value={s.id}>
+                                  {s.nombre} {uNombre ? `(${uNombre})` : ''} - ${Number(s.costo_unitario).toLocaleString('es-AR')}
+                                </option>
+                              );
+                            })}
+                        </select>
                       ) : (
-                        <div className="md:col-span-5 space-y-1">
-                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                            Descripción del Costo
-                          </label>
-                          <input
-                            type="text"
-                            value={comp.nombre}
-                            onChange={(e) => updateComponenteField(comp.rowId, 'nombre', e.target.value)}
-                            placeholder="Ej: Flete, Embalaje especial..."
-                            className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          value={comp.nombre}
+                          onChange={(e) => updateComponenteField(comp.rowId, 'nombre', e.target.value)}
+                          placeholder="Ej: Flete, Embalaje especial..."
+                          className="flex-1 min-w-[140px] bg-white border border-outline-variant/10 rounded-lg py-1.5 px-2.5 text-[11px] font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
+                        />
                       )}
 
                       {/* Cantidad */}
-                      <div className="md:col-span-2 space-y-1">
-                        <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                          Cantidad
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={comp.cantidad}
-                          onChange={(e) => updateComponenteField(comp.rowId, 'cantidad', e.target.value)}
-                          placeholder="1"
-                          className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-black text-primary focus:ring-2 focus:ring-primary/20 shadow-sm"
-                        />
-                      </div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={comp.cantidad}
+                        onChange={(e) => updateComponenteField(comp.rowId, 'cantidad', e.target.value)}
+                        placeholder="1"
+                        title="Cantidad"
+                        className="w-14 shrink-0 bg-white border border-outline-variant/10 rounded-lg py-1.5 px-1.5 text-[11px] font-black text-primary text-center focus:ring-2 focus:ring-primary/20 shadow-sm"
+                      />
 
-                      {/* Unidad (Selector si es insumo con unidad de compra, o input si es otro, o label) */}
-                      <div className="md:col-span-2 space-y-1">
-                        <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                          Unidad
-                        </label>
+                      {/* Unidad (toggle compacto si es insumo con unidad de compra, o input si es otro, o label) */}
+                      <div className="w-28 shrink-0">
                         {comp.tipo === 'insumo' && ins && hasUnidadCompra ? (
-                          <div className="flex flex-col gap-1 text-[10px] pt-1">
-                            <label className="flex items-center gap-1.5 cursor-pointer font-bold text-on-surface select-none">
-                              <input
-                                type="radio"
-                                name={`unit_${comp.rowId}`}
-                                checked={comp.en_unidad_compra}
-                                onChange={() => handleInsumoUnitToggle(comp.rowId, true)}
-                                className="text-primary focus:ring-primary/20 text-xs"
-                              />
+                          <div className="flex rounded-lg overflow-hidden border border-outline-variant/20 text-[9px] font-black w-full">
+                            <button
+                              type="button"
+                              title={ins.unidad_compra_nombre || ''}
+                              onClick={() => handleInsumoUnitToggle(comp.rowId, true)}
+                              className={`flex-1 py-1.5 px-1 truncate transition-colors ${
+                                comp.en_unidad_compra ? 'bg-primary text-white' : 'bg-white text-on-surface-variant hover:bg-surface-container-low'
+                              }`}
+                            >
                               {ins.unidad_compra_nombre}
-                            </label>
-                            <label className="flex items-center gap-1.5 cursor-pointer font-bold text-on-surface select-none">
-                              <input
-                                type="radio"
-                                name={`unit_${comp.rowId}`}
-                                checked={!comp.en_unidad_compra}
-                                onChange={() => handleInsumoUnitToggle(comp.rowId, false)}
-                                className="text-primary focus:ring-primary/20 text-xs"
-                              />
+                            </button>
+                            <button
+                              type="button"
+                              title={ins.unidad_stock_nombre}
+                              onClick={() => handleInsumoUnitToggle(comp.rowId, false)}
+                              className={`flex-1 py-1.5 px-1 truncate transition-colors ${
+                                !comp.en_unidad_compra ? 'bg-primary text-white' : 'bg-white text-on-surface-variant hover:bg-surface-container-low'
+                              }`}
+                            >
                               {ins.unidad_stock_nombre}
-                            </label>
+                            </button>
                           </div>
                         ) : comp.tipo === 'otro' ? (
                           <input
@@ -601,71 +594,65 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                             value={comp.unidad || ''}
                             onChange={(e) => updateComponenteField(comp.rowId, 'unidad', e.target.value)}
                             placeholder="Ej: Viaje"
-                            className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
+                            title="Unidad"
+                            className="w-full bg-white border border-outline-variant/10 rounded-lg py-1.5 px-2 text-[11px] font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
                           />
                         ) : (
-                          <p className="text-xs font-bold text-on-surface pt-2">
+                          <p className="text-[11px] font-bold text-on-surface-variant text-center truncate px-1">
                             {comp.unidad || 'Unidad'}
                           </p>
                         )}
                       </div>
 
                       {/* Costo Unitario */}
-                      <div className="md:col-span-3 space-y-1">
-                        <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                          Costo Unit. ($)
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={comp.costo_unitario}
-                          onChange={(e) => updateComponenteField(comp.rowId, 'costo_unitario', e.target.value)}
-                          placeholder="0.00"
-                          className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
-                        />
-                      </div>
-                    </div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={comp.costo_unitario}
+                        onChange={(e) => updateComponenteField(comp.rowId, 'costo_unitario', e.target.value)}
+                        placeholder="0.00"
+                        title="Costo unitario"
+                        className="w-20 shrink-0 bg-white border border-outline-variant/10 rounded-lg py-1.5 px-1.5 text-[11px] font-bold text-on-surface text-center focus:ring-2 focus:ring-primary/20 shadow-sm"
+                      />
 
-                    {/* Subtotal del Componente */}
-                    <div className="flex items-center justify-between pt-1 text-xs">
-                      {comp.tipo === 'insumo' && ins && comp.en_unidad_compra && factor !== 1 && cantNum > 0 ? (
-                        <span className="text-[10px] font-bold text-outline">
-                          = {(cantNum * factor).toLocaleString('es-AR', { maximumFractionDigits: 3 })}{' '}
-                          {ins.unidad_stock_nombre} de stock
-                        </span>
-                      ) : (
-                        <span></span>
-                      )}
-                      <span className="font-bold text-on-surface">
-                        Subtotal:{' '}
-                        <strong className="font-black text-primary">
-                          ${subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </strong>
+                      {/* Subtotal */}
+                      <span className="w-20 shrink-0 text-right text-[11px] font-black text-primary">
+                        ${subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </span>
+
+                      {/* Quitar */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveComponente(comp.rowId)}
+                        title="Quitar componente"
+                        className="p-1 shrink-0 text-on-surface-variant hover:text-error rounded-lg transition-all"
+                      >
+                        <span className="material-symbols-outlined text-base">delete</span>
+                      </button>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             )}
           </div>
 
           <hr className="border-outline-variant/10" />
 
           {/* Sección: Margen y Resumen Financiero en Vivo */}
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-xl">trending_up</span>
-                <h4 className="text-sm font-black uppercase tracking-[0.2em] text-primary">
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-primary text-base">trending_up</span>
+                <h4 className="text-[11px] font-black uppercase tracking-[0.15em] text-primary">
                   Margen y Precio Sugerido
                 </h4>
               </div>
 
               {/* Input Margen */}
-              <div className="flex items-center gap-3">
-                <label className="text-xs font-black text-on-surface uppercase tracking-wider">
-                  Margen de Ganancia:
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black text-on-surface uppercase tracking-wider">
+                  Margen:
                 </label>
                 <div className="relative flex items-center">
                   <input
@@ -674,45 +661,45 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
                     min="0"
                     value={margenPct}
                     onChange={(e) => setMargenPct(e.target.value)}
-                    className="w-24 bg-surface-container-low border-none rounded-xl py-2 pl-3 pr-7 text-sm font-black text-primary focus:ring-2 focus:ring-primary/20 shadow-inner"
+                    className="w-20 bg-surface-container-low border-none rounded-lg py-1.5 pl-2.5 pr-6 text-xs font-black text-primary focus:ring-2 focus:ring-primary/20 shadow-inner"
                   />
-                  <span className="absolute right-3 text-xs font-black text-outline pointer-events-none">%</span>
+                  <span className="absolute right-2 text-[10px] font-black text-outline pointer-events-none">%</span>
                 </div>
               </div>
             </div>
 
             {/* Tarjetas de Resumen en Vivo */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-surface-container-low/60 p-4 rounded-2xl border border-outline-variant/10">
-                <p className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="bg-surface-container-low/60 p-2.5 rounded-xl border border-outline-variant/10">
+                <p className="text-[8px] font-black text-on-surface-variant uppercase tracking-widest">
                   Costo Total
                 </p>
-                <p className="text-lg font-headline font-extrabold text-on-surface mt-0.5">
+                <p className="text-sm font-headline font-extrabold text-on-surface mt-0.5">
                   ${costoTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </p>
               </div>
 
-              <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
-                <p className="text-[9px] font-black text-emerald-800 uppercase tracking-widest">
+              <div className="bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-100">
+                <p className="text-[8px] font-black text-emerald-800 uppercase tracking-widest">
                   Ganancia Estimada
                 </p>
-                <p className="text-lg font-headline font-extrabold text-emerald-700 mt-0.5">
+                <p className="text-sm font-headline font-extrabold text-emerald-700 mt-0.5">
                   +${ganancia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </p>
               </div>
 
-              <div className="bg-slate-900 text-white p-4 rounded-2xl col-span-2 flex flex-col justify-between">
+              <div className="bg-slate-900 text-white p-2.5 rounded-xl col-span-2 flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
                     Precio Total Sugerido (+{numMargen}%)
                   </p>
-                  <p className="text-2xl font-headline font-extrabold text-white mt-0.5">
+                  <p className="text-base font-headline font-extrabold text-white mt-0.5">
                     ${precioSugerido.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 {precioUnitarioSugerido !== null && (
-                  <p className="text-[10px] font-bold text-slate-300 mt-1">
-                    Precio unitario sugerido: ${precioUnitarioSugerido.toLocaleString('es-AR', { minimumFractionDigits: 2 })} / u.
+                  <p className="text-[9px] font-bold text-slate-300 text-right shrink-0">
+                    ${precioUnitarioSugerido.toLocaleString('es-AR', { minimumFractionDigits: 2 })} / u.
                   </p>
                 )}
               </div>
@@ -721,24 +708,24 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="px-10 py-6 bg-surface-container-low/50 border-t border-outline-variant/10 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-6 py-3.5 bg-surface-container-low/50 border-t border-outline-variant/10 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           <div>
             {initialCosteo && (
               <button
                 type="button"
                 onClick={handleClearDesglose}
-                className="px-4 py-3 text-error hover:bg-error/10 font-bold rounded-2xl text-xs uppercase tracking-widest transition-all active:scale-95"
+                className="px-3 py-2 text-error hover:bg-error/10 font-bold rounded-xl text-[11px] uppercase tracking-widest transition-all active:scale-95"
               >
                 Quitar Desglose
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-3.5 bg-white text-on-surface-variant font-bold rounded-2xl hover:bg-slate-100 transition-all border border-outline-variant/20 active:scale-95 text-xs uppercase tracking-widest"
+              className="px-4 py-2.5 bg-white text-on-surface-variant font-bold rounded-xl hover:bg-slate-100 transition-all border border-outline-variant/20 active:scale-95 text-[11px] uppercase tracking-widest"
             >
               Cancelar
             </button>
@@ -746,9 +733,9 @@ const CostCalculatorModal: React.FC<CostCalculatorModalProps> = ({
               type="button"
               disabled={componentes.length === 0 || costoTotal <= 0}
               onClick={handleApply}
-              className="px-8 py-3.5 bg-primary text-white font-bold rounded-2xl shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 text-xs uppercase tracking-widest disabled:opacity-50"
+              className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5 text-[11px] uppercase tracking-widest disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-lg">check</span>
+              <span className="material-symbols-outlined text-base">check</span>
               Usar este precio (${precioSugerido.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
             </button>
           </div>
