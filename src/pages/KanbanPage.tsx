@@ -251,7 +251,8 @@ const KanbanPage: React.FC = () => {
       badgeClasses: 'bg-slate-400/10 text-slate-700',
       next: 'APROBADO',
       prev: null,
-      label: 'Aprobar'
+      label: 'Aprobar',
+      nextIcon: 'thumb_up'
     },
     {
       title: 'APROBADO',
@@ -260,7 +261,8 @@ const KanbanPage: React.FC = () => {
       badgeClasses: 'bg-indigo-400/10 text-indigo-700',
       next: 'EN PRODUCCIÓN',
       prev: 'PRESUPUESTADO',
-      label: 'Producir'
+      label: 'Producir',
+      nextIcon: 'play_circle'
     },
     {
       title: 'EN PRODUCCIÓN',
@@ -269,7 +271,8 @@ const KanbanPage: React.FC = () => {
       badgeClasses: 'bg-blue-500/10 text-blue-700',
       next: 'TERMINADO',
       prev: 'APROBADO',
-      label: 'Finalizar'
+      label: 'Finalizar',
+      nextIcon: 'check_circle'
     },
     {
       title: 'TERMINADO',
@@ -278,7 +281,8 @@ const KanbanPage: React.FC = () => {
       badgeClasses: 'bg-amber-500/10 text-amber-700',
       next: 'ENTREGADO',
       prev: 'EN PRODUCCIÓN',
-      label: 'Entregar'
+      label: 'Entregar',
+      nextIcon: 'local_shipping'
     },
     {
       title: 'ENTREGADO',
@@ -287,7 +291,8 @@ const KanbanPage: React.FC = () => {
       badgeClasses: 'bg-emerald-500/10 text-emerald-700',
       next: null,
       prev: 'TERMINADO',
-      label: ''
+      label: '',
+      nextIcon: ''
     },
   ];
 
@@ -692,7 +697,7 @@ const KanbanPage: React.FC = () => {
                             className={`${(col.prev || col.status === 'TERMINADO') ? 'col-span-4' : 'col-span-5'} py-2 bg-surface-container-low hover:bg-primary hover:text-white text-primary text-[10px] font-black uppercase tracking-[0.1em] rounded-xl transition-all flex items-center justify-center gap-2 group/btn border border-outline-variant/5 h-10`}
                           >
                             <span className="material-symbols-outlined text-lg group-hover/btn:translate-x-1 transition-transform">
-                              {col.status === 'EN PRODUCCIÓN' ? 'check_circle' : col.status === 'TERMINADO' ? 'local_shipping' : 'trending_flat'}
+                              {col.nextIcon || 'trending_flat'}
                             </span>
                             {col.label}
                           </button>
@@ -906,7 +911,7 @@ const KanbanPage: React.FC = () => {
                                 className="p-2 bg-primary text-white rounded-lg shadow-sm hover:shadow-md hover:brightness-110 transition-all flex items-center justify-center"
                               >
                                 <span className="material-symbols-outlined text-lg">
-                                  {currentStatus === 'EN PRODUCCIÓN' ? 'check_circle' : 'local_shipping'}
+                                  {col.nextIcon || 'trending_flat'}
                                 </span>
                               </button>
                             )}
