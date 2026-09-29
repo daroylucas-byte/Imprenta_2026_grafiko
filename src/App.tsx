@@ -12,6 +12,7 @@ const PurchasesPage = lazy(() => import('./pages/PurchasesPage'));
 const BillingPage = lazy(() => import('./pages/BillingPage'));
 const ConfigDropdownPage = lazy(() => import('./pages/ConfigDropdownPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const ElaborationPage = lazy(() => import('./pages/ElaborationPage'));
 const CashRegisterPage = lazy(() => import('./pages/CashRegisterPage'));
 const PromotionsPage = lazy(() => import('./pages/PromotionsPage'));
 const ClientCampaignsPage = lazy(() => import('./pages/ClientCampaignsPage'));
@@ -70,6 +71,11 @@ function App() {
       <Route
         path="/productos"
         element={user ? <Layout title="Gestión de Productos"><ProductsPage /></Layout> : <Navigate to="/login" />}
+      />
+
+      <Route
+        path="/elaboracion"
+        element={user ? <Layout title="Elaboración de Productos"><ElaborationPage /></Layout> : <Navigate to="/login" />}
       />
 
       <Route

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
-import { useAuthStore } from '../store/authStore';
 
 interface Product {
   id: string;
@@ -56,7 +56,7 @@ const TIPO_MOVIMIENTO_LABEL: Record<string, { label: string; color: string }> = 
 };
 
 const ProductsPage: React.FC = () => {
-  const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,12 +68,6 @@ const ProductsPage: React.FC = () => {
   const [insumosCatalog, setInsumosCatalog] = useState<InsumoLookup[]>([]);
   const [receta, setReceta] = useState<RecetaLine[]>([]);
   const [loadingReceta, setLoadingReceta] = useState(false);
-
-  // Modal "Elaborar"
-  const [isElaborarOpen, setIsElaborarOpen] = useState(false);
-  const [elaborarCantidad, setElaborarCantidad] = useState('');
-  const [elaborarMotivo, setElaborarMotivo] = useState('');
-  const [elaborando, setElaborando] = useState(false);
 
   // Modal historial de movimientos
   const [isMovimientosOpen, setIsMovimientosOpen] = useState(false);
@@ -157,44 +151,6 @@ const ProductsPage: React.FC = () => {
 
   const handleUpdateRecetaLine = (rowId: string, field: keyof RecetaLine, value: any) => {
     setReceta((prev) => prev.map((r) => (r.rowId === rowId ? { ...r, [field]: value } : r)));
-  };
-
-  const handleOpenElaborar = () => {
-    setElaborarCantidad('');
-    setElaborarMotivo('');
-    setIsElaborarOpen(true);
-  };
-
-  const handleElaborar = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProduct?.id) return;
-    const cantidad = Number(elaborarCantidad);
-    if (!cantidad || cantidad <= 0) {
-      toast.error('Ingresá una cantidad válida mayor a 0');
-      return;
-    }
-    setElaborando(true);
-    try {
-      const { data, error } = await supabase.rpc('elaborar_producto', {
-        p_producto_id: selectedProduct.id,
-        p_cantidad: cantidad,
-        p_motivo: elaborarMotivo.trim() || null,
-        p_usuario_id: user?.id || null,
-      });
-      if (error) throw error;
-      const res = data && data[0];
-      const negativos = Number(res?.insumos_en_negativo || 0);
-      toast.success(
-        `Se elaboraron ${cantidad} unidad(es). Stock nuevo: ${Number(res?.stock_nuevo ?? 0).toLocaleString('es-AR')}.` +
-          (negativos > 0 ? ` ${negativos} insumo(s) quedaron con stock negativo.` : '')
-      );
-      setIsElaborarOpen(false);
-      fetchProducts();
-    } catch (error: any) {
-      toast.error(error.message || 'Error al elaborar el producto');
-    } finally {
-      setElaborando(false);
-    }
   };
 
   const handleOpenMovimientos = async () => {
@@ -615,10 +571,9 @@ const ProductsPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={handleOpenElaborar}
-                          disabled={receta.filter((r) => r.insumoId).length === 0}
-                          title={receta.filter((r) => r.insumoId).length === 0 ? 'Cargá una receta primero' : 'Elaborar'}
-                          className="px-3 h-9 flex items-center gap-1.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all"
+                          onClick={() => navigate(`/elaboracion?producto=${selectedProduct.id}`)}
+                          title="Ir al panel de Elaboración"
+                          className="px-3 h-9 flex items-center gap-1.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all"
                         >
                           <span className="material-symbols-outlined text-base">precision_manufacturing</span>
                           Elaborar
@@ -719,73 +674,6 @@ const ProductsPage: React.FC = () => {
             </div>
           </form>
         </aside>
-      )}
-
-      {/* Modal: Elaborar */}
-      {isElaborarOpen && selectedProduct && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-          <form
-            onSubmit={handleElaborar}
-            className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-300"
-          >
-            <div className="px-7 py-5 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/30">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-indigo-600">precision_manufacturing</span>
-                <div>
-                  <h3 className="text-base font-headline font-extrabold text-on-surface">Elaborar producto</h3>
-                  <p className="text-[10px] font-bold text-on-surface-variant">{selectedProduct.nombre}</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setIsElaborarOpen(false)} className="p-1.5 text-on-surface-variant hover:text-error rounded-full transition-all">
-                <span className="material-symbols-outlined text-xl">close</span>
-              </button>
-            </div>
-            <div className="p-7 space-y-4">
-              <p className="text-[11px] text-on-surface-variant font-medium">
-                Descuenta de stock cada insumo de la receta (multiplicado por la cantidad) y suma stock a este producto.
-              </p>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1">
-                  Cantidad a elaborar <span className="text-error">*</span>
-                </label>
-                <input
-                  autoFocus
-                  type="number" step="any" min="0.0001"
-                  value={elaborarCantidad}
-                  onChange={(e) => setElaborarCantidad(e.target.value)}
-                  className="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-sm font-black text-indigo-700 focus:ring-2 focus:ring-indigo-300 shadow-inner"
-                  placeholder="0"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1">Motivo (opcional)</label>
-                <input
-                  type="text"
-                  value={elaborarMotivo}
-                  onChange={(e) => setElaborarMotivo(e.target.value)}
-                  className="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 shadow-inner"
-                  placeholder="Ej: tanda para stock de octubre"
-                />
-              </div>
-            </div>
-            <div className="px-7 py-5 bg-surface-container-low/30 border-t border-outline-variant/10 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setIsElaborarOpen(false)}
-                className="flex-1 py-3 bg-white text-on-surface-variant font-bold rounded-xl border border-outline-variant/20 text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={elaborando}
-                className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20 text-xs uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-50 transition-all"
-              >
-                {elaborando ? 'Elaborando...' : 'Confirmar elaboración'}
-              </button>
-            </div>
-          </form>
-        </div>
       )}
 
       {/* Modal: Historial de movimientos de stock */}
