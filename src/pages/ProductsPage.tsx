@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
+import { useAuthStore } from '../store/authStore';
 
 interface Product {
   id: string;
@@ -15,9 +16,47 @@ interface Product {
   requiere_fecha_muestra: boolean;
   unidad_medida: string;
   created_at: string;
+  stock: number;
+  stock_minimo: number;
+  bajo_minimo: boolean;
+  stock_negativo: boolean;
+  tiene_receta: boolean;
 }
 
+interface InsumoLookup {
+  id: string;
+  nombre: string;
+  unidad_stock_nombre: string;
+}
+
+interface RecetaLine {
+  rowId: string;
+  insumoId: string;
+  cantidadPorUnidad: number | string;
+}
+
+interface MovimientoProducto {
+  id: string;
+  tipo: string;
+  cantidad: number;
+  stock_anterior: number;
+  stock_nuevo: number;
+  motivo: string | null;
+  referencia_tipo: string | null;
+  created_at: string;
+}
+
+const TIPO_MOVIMIENTO_LABEL: Record<string, { label: string; color: string }> = {
+  entrada: { label: 'Compra', color: 'text-emerald-700 bg-emerald-50' },
+  elaboracion: { label: 'Elaboración', color: 'text-indigo-700 bg-indigo-50' },
+  venta: { label: 'Venta (trabajo)', color: 'text-amber-700 bg-amber-50' },
+  salida: { label: 'Salida', color: 'text-error bg-error/5' },
+  ajuste: { label: 'Ajuste', color: 'text-slate-700 bg-slate-100' },
+  devolucion: { label: 'Devolución', color: 'text-blue-700 bg-blue-50' },
+};
+
 const ProductsPage: React.FC = () => {
+  const { user } = useAuthStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,11 +64,27 @@ const ProductsPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<Partial<Product> | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Receta (insumos que componen 1 unidad del producto, para elaborar)
+  const [insumosCatalog, setInsumosCatalog] = useState<InsumoLookup[]>([]);
+  const [receta, setReceta] = useState<RecetaLine[]>([]);
+  const [loadingReceta, setLoadingReceta] = useState(false);
+
+  // Modal "Elaborar"
+  const [isElaborarOpen, setIsElaborarOpen] = useState(false);
+  const [elaborarCantidad, setElaborarCantidad] = useState('');
+  const [elaborarMotivo, setElaborarMotivo] = useState('');
+  const [elaborando, setElaborando] = useState(false);
+
+  // Modal historial de movimientos
+  const [isMovimientosOpen, setIsMovimientosOpen] = useState(false);
+  const [movimientos, setMovimientos] = useState<MovimientoProducto[]>([]);
+  const [loadingMovimientos, setLoadingMovimientos] = useState(false);
+
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('t_productos')
+        .from('v_productos_stock')
         .select('*')
         .order('nombre', { ascending: true });
 
@@ -46,6 +101,122 @@ const ProductsPage: React.FC = () => {
     fetchProducts();
   }, [fetchProducts]);
 
+  // Catálogo de insumos para armar la receta (una sola carga)
+  useEffect(() => {
+    const fetchInsumos = async () => {
+      const { data, error } = await supabase
+        .from('v_insumos_stock')
+        .select('id, nombre, unidad_stock_nombre')
+        .eq('activo', true)
+        .order('nombre', { ascending: true });
+      if (!error) setInsumosCatalog(data || []);
+    };
+    fetchInsumos();
+  }, []);
+
+  // Cargar la receta del producto que se está editando
+  useEffect(() => {
+    const fetchReceta = async () => {
+      if (!selectedProduct?.id) {
+        setReceta([]);
+        return;
+      }
+      setLoadingReceta(true);
+      try {
+        const { data, error } = await supabase
+          .from('v_producto_receta')
+          .select('id, insumo_id, cantidad_por_unidad')
+          .eq('producto_id', selectedProduct.id);
+        if (error) throw error;
+        setReceta(
+          (data || []).map((r: any) => ({
+            rowId: r.id,
+            insumoId: r.insumo_id,
+            cantidadPorUnidad: r.cantidad_por_unidad,
+          }))
+        );
+      } catch (error: any) {
+        toast.error('Error al cargar la receta: ' + error.message);
+      } finally {
+        setLoadingReceta(false);
+      }
+    };
+    fetchReceta();
+  }, [selectedProduct?.id]);
+
+  const handleAddRecetaLine = () => {
+    setReceta((prev) => [
+      ...prev,
+      { rowId: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, insumoId: '', cantidadPorUnidad: '' },
+    ]);
+  };
+
+  const handleRemoveRecetaLine = (rowId: string) => {
+    setReceta((prev) => prev.filter((r) => r.rowId !== rowId));
+  };
+
+  const handleUpdateRecetaLine = (rowId: string, field: keyof RecetaLine, value: any) => {
+    setReceta((prev) => prev.map((r) => (r.rowId === rowId ? { ...r, [field]: value } : r)));
+  };
+
+  const handleOpenElaborar = () => {
+    setElaborarCantidad('');
+    setElaborarMotivo('');
+    setIsElaborarOpen(true);
+  };
+
+  const handleElaborar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct?.id) return;
+    const cantidad = Number(elaborarCantidad);
+    if (!cantidad || cantidad <= 0) {
+      toast.error('Ingresá una cantidad válida mayor a 0');
+      return;
+    }
+    setElaborando(true);
+    try {
+      const { data, error } = await supabase.rpc('elaborar_producto', {
+        p_producto_id: selectedProduct.id,
+        p_cantidad: cantidad,
+        p_motivo: elaborarMotivo.trim() || null,
+        p_usuario_id: user?.id || null,
+      });
+      if (error) throw error;
+      const res = data && data[0];
+      const negativos = Number(res?.insumos_en_negativo || 0);
+      toast.success(
+        `Se elaboraron ${cantidad} unidad(es). Stock nuevo: ${Number(res?.stock_nuevo ?? 0).toLocaleString('es-AR')}.` +
+          (negativos > 0 ? ` ${negativos} insumo(s) quedaron con stock negativo.` : '')
+      );
+      setIsElaborarOpen(false);
+      fetchProducts();
+    } catch (error: any) {
+      toast.error(error.message || 'Error al elaborar el producto');
+    } finally {
+      setElaborando(false);
+    }
+  };
+
+  const handleOpenMovimientos = async () => {
+    if (!selectedProduct?.id) return;
+    setIsMovimientosOpen(true);
+    setLoadingMovimientos(true);
+    try {
+      const { data, error } = await supabase
+        .from('v_movimientos_stock_producto')
+        .select('id, tipo, cantidad, stock_anterior, stock_nuevo, motivo, referencia_tipo, created_at')
+        .eq('producto_id', selectedProduct.id)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      setMovimientos(data || []);
+    } catch (error: any) {
+      toast.error('Error al cargar el historial: ' + error.message);
+    } finally {
+      setLoadingMovimientos(false);
+    }
+  };
+
   const handleCreateNew = () => {
     setSelectedProduct({
       nombre: '',
@@ -57,7 +228,8 @@ const ProductsPage: React.FC = () => {
       activo: true,
       requiere_numeracion: false,
       requiere_fecha_muestra: false,
-      unidad_medida: 'unidad'
+      unidad_medida: 'unidad',
+      stock_minimo: 0
     });
     setIsPanelOpen(true);
   };
@@ -77,6 +249,23 @@ const ProductsPage: React.FC = () => {
       fetchProducts();
     } catch (error: any) {
       toast.error('Error al eliminar: ' + error.message);
+    }
+  };
+
+  // Reemplaza por completo la receta del producto (borra e inserta, igual que items de trabajo)
+  const saveReceta = async (productoId: string) => {
+    const lineasValidas = receta.filter((r) => r.insumoId && Number(r.cantidadPorUnidad) > 0);
+    const { error: delError } = await supabase.from('t_producto_insumos').delete().eq('producto_id', productoId);
+    if (delError) throw delError;
+    if (lineasValidas.length > 0) {
+      const { error: insError } = await supabase.from('t_producto_insumos').insert(
+        lineasValidas.map((r) => ({
+          producto_id: productoId,
+          insumo_id: r.insumoId,
+          cantidad_por_unidad: Number(r.cantidadPorUnidad),
+        }))
+      );
+      if (insError) throw insError;
     }
   };
 
@@ -100,16 +289,24 @@ const ProductsPage: React.FC = () => {
             requiere_numeracion: selectedProduct.requiere_numeracion,
             requiere_fecha_muestra: selectedProduct.requiere_fecha_muestra,
             unidad_medida: selectedProduct.unidad_medida,
+            stock_minimo: selectedProduct.stock_minimo || 0,
           })
           .eq('id', selectedProduct.id);
         if (error) throw error;
+        await saveReceta(selectedProduct.id);
         toast.success('Producto actualizado');
       } else {
         // Create
-        const { error } = await supabase
+        const { nombre, categoria, precio_costo, precio_minorista, precio_mayorista, descripcion,
+          requiere_numeracion, requiere_fecha_muestra, unidad_medida, stock_minimo } = selectedProduct;
+        const { data, error } = await supabase
           .from('t_productos')
-          .insert([selectedProduct]);
+          .insert([{ nombre, categoria, precio_costo, precio_minorista, precio_mayorista, descripcion,
+            requiere_numeracion, requiere_fecha_muestra, unidad_medida, stock_minimo: stock_minimo || 0 }])
+          .select('id')
+          .single();
         if (error) throw error;
+        if (data?.id) await saveReceta(data.id);
         toast.success('Producto creado');
       }
       setIsPanelOpen(false);
@@ -175,6 +372,7 @@ const ProductsPage: React.FC = () => {
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">ID</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Producto</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Categoría</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Stock</th>
                     <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Costo</th>
                     <th className="px-4 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-right tracking-tighter">Precio</th>
                     <th className="px-6 py-5 text-[10px] font-black uppercase tracking-widest text-on-surface-variant text-center">Extras</th>
@@ -210,6 +408,17 @@ const ProductsPage: React.FC = () => {
                             {p.unidad_medida === 'metro' ? 'Por metro' : 'Por unidad'}
                           </span>
                         </div>
+                      </td>
+                      <td className="px-4 py-5 text-right">
+                        <span
+                          className={`font-headline font-black text-sm ${
+                            p.stock_negativo ? 'text-error' : p.bajo_minimo ? 'text-amber-600' : 'text-on-surface'
+                          }`}
+                          title={p.tiene_receta ? 'Tiene receta cargada' : 'Sin receta (se compra ya elaborado)'}
+                        >
+                          {Number(p.stock ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                        </span>
+                        <p className="text-[9px] text-on-surface-variant/60 font-bold">{p.unidad_medida}</p>
                       </td>
                       <td className="px-4 py-5 text-right font-bold text-xs text-on-surface-variant/70">
                         $ {Number(p.precio_costo).toLocaleString('es-AR')}
@@ -374,12 +583,120 @@ const ProductsPage: React.FC = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-[0.15em] text-on-surface-variant px-1">Descripción</label>
-                  <textarea 
-                    className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all resize-none" 
+                  <textarea
+                    className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all resize-none"
                     rows={3}
                     value={selectedProduct?.descripcion || ''}
                     onChange={(e) => setSelectedProduct(prev => ({ ...prev, descripcion: e.target.value }))}
                   />
+                </div>
+
+                {/* Stock: lectura + stock mínimo editable + acciones (solo al editar un producto existente) */}
+                {selectedProduct?.id && (
+                  <div className="space-y-3 bg-surface-container-low/40 p-4 rounded-3xl border border-outline-variant/10">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-on-surface-variant">Stock actual</p>
+                        <p className={`text-xl font-headline font-black ${
+                          selectedProduct.stock_negativo ? 'text-error' : selectedProduct.bajo_minimo ? 'text-amber-600' : 'text-on-surface'
+                        }`}>
+                          {Number(selectedProduct.stock ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}{' '}
+                          <span className="text-xs font-bold text-on-surface-variant">{selectedProduct.unidad_medida}</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOpenMovimientos}
+                          title="Ver historial de movimientos"
+                          className="w-9 h-9 flex items-center justify-center bg-white border border-outline-variant/20 rounded-xl text-on-surface-variant hover:text-primary hover:border-primary/30 transition-all"
+                        >
+                          <span className="material-symbols-outlined text-lg">history</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleOpenElaborar}
+                          disabled={receta.filter((r) => r.insumoId).length === 0}
+                          title={receta.filter((r) => r.insumoId).length === 0 ? 'Cargá una receta primero' : 'Elaborar'}
+                          className="px-3 h-9 flex items-center gap-1.5 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all"
+                        >
+                          <span className="material-symbols-outlined text-base">precision_manufacturing</span>
+                          Elaborar
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-on-surface-variant px-1">
+                        Stock mínimo (alerta)
+                      </label>
+                      <input
+                        className="w-full bg-white border border-outline-variant/20 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/20 transition-all"
+                        type="number" step="0.01" min="0"
+                        value={selectedProduct?.stock_minimo ?? 0}
+                        onChange={(e) => setSelectedProduct(prev => ({ ...prev, stock_minimo: parseFloat(e.target.value) || 0 }))}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Receta: insumos que se consumen al elaborar 1 unidad de este producto */}
+                <div className="space-y-2 bg-surface-container-low/20 p-4 rounded-3xl border border-outline-variant/5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-[0.15em] text-indigo-700">
+                      Receta (opcional)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddRecetaLine}
+                      className="flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-[10px] font-black transition-all"
+                    >
+                      <span className="material-symbols-outlined text-sm">add</span>
+                      Insumo
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-on-surface-variant font-medium">
+                    Insumos que se consumen al elaborar 1 unidad. Sin receta, el producto se carga por compra (ya elaborado) o ajuste manual.
+                  </p>
+
+                  {loadingReceta ? (
+                    <p className="text-[10px] text-outline italic py-2">Cargando receta...</p>
+                  ) : receta.length === 0 ? (
+                    <p className="text-[10px] text-outline italic py-2">Sin insumos cargados en la receta.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {receta.map((r) => (
+                        <div key={r.rowId} className="flex items-center gap-1.5">
+                          <select
+                            value={r.insumoId}
+                            onChange={(e) => handleUpdateRecetaLine(r.rowId, 'insumoId', e.target.value)}
+                            className="flex-1 min-w-0 bg-white border border-outline-variant/20 rounded-lg py-1.5 px-2 text-[11px] font-bold focus:ring-2 focus:ring-primary/20 appearance-none"
+                          >
+                            <option value="">Elegir insumo...</option>
+                            {insumosCatalog.map((i) => (
+                              <option key={i.id} value={i.id}>{i.nombre}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="number" step="any" min="0"
+                            placeholder="Cant."
+                            value={r.cantidadPorUnidad}
+                            onChange={(e) => handleUpdateRecetaLine(r.rowId, 'cantidadPorUnidad', e.target.value)}
+                            className="w-16 shrink-0 bg-white border border-outline-variant/20 rounded-lg py-1.5 px-2 text-[11px] font-black text-primary text-center focus:ring-2 focus:ring-primary/20"
+                          />
+                          <span className="w-14 shrink-0 text-[9px] font-bold text-outline truncate">
+                            {insumosCatalog.find((i) => i.id === r.insumoId)?.unidad_stock_nombre || ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRecetaLine(r.rowId)}
+                            className="p-1 shrink-0 text-on-surface-variant hover:text-error rounded-lg transition-all"
+                          >
+                            <span className="material-symbols-outlined text-base">delete</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -402,6 +719,135 @@ const ProductsPage: React.FC = () => {
             </div>
           </form>
         </aside>
+      )}
+
+      {/* Modal: Elaborar */}
+      {isElaborarOpen && selectedProduct && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+          <form
+            onSubmit={handleElaborar}
+            className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-300"
+          >
+            <div className="px-7 py-5 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/30">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-indigo-600">precision_manufacturing</span>
+                <div>
+                  <h3 className="text-base font-headline font-extrabold text-on-surface">Elaborar producto</h3>
+                  <p className="text-[10px] font-bold text-on-surface-variant">{selectedProduct.nombre}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setIsElaborarOpen(false)} className="p-1.5 text-on-surface-variant hover:text-error rounded-full transition-all">
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+            <div className="p-7 space-y-4">
+              <p className="text-[11px] text-on-surface-variant font-medium">
+                Descuenta de stock cada insumo de la receta (multiplicado por la cantidad) y suma stock a este producto.
+              </p>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1">
+                  Cantidad a elaborar <span className="text-error">*</span>
+                </label>
+                <input
+                  autoFocus
+                  type="number" step="any" min="0.0001"
+                  value={elaborarCantidad}
+                  onChange={(e) => setElaborarCantidad(e.target.value)}
+                  className="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-sm font-black text-indigo-700 focus:ring-2 focus:ring-indigo-300 shadow-inner"
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant px-1">Motivo (opcional)</label>
+                <input
+                  type="text"
+                  value={elaborarMotivo}
+                  onChange={(e) => setElaborarMotivo(e.target.value)}
+                  className="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-primary/20 shadow-inner"
+                  placeholder="Ej: tanda para stock de octubre"
+                />
+              </div>
+            </div>
+            <div className="px-7 py-5 bg-surface-container-low/30 border-t border-outline-variant/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsElaborarOpen(false)}
+                className="flex-1 py-3 bg-white text-on-surface-variant font-bold rounded-xl border border-outline-variant/20 text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={elaborando}
+                className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20 text-xs uppercase tracking-widest hover:brightness-110 active:scale-95 disabled:opacity-50 transition-all"
+              >
+                {elaborando ? 'Elaborando...' : 'Confirmar elaboración'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal: Historial de movimientos de stock */}
+      {isMovimientosOpen && selectedProduct && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-2xl max-h-[80vh] rounded-[2rem] shadow-2xl border border-white/20 flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="px-7 py-5 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/30 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">history</span>
+                <div>
+                  <h3 className="text-base font-headline font-extrabold text-on-surface">Historial de movimientos</h3>
+                  <p className="text-[10px] font-bold text-on-surface-variant">{selectedProduct.nombre}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setIsMovimientosOpen(false)} className="p-1.5 text-on-surface-variant hover:text-error rounded-full transition-all">
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto no-scrollbar p-4">
+              {loadingMovimientos ? (
+                <p className="text-center text-xs text-outline italic py-8">Cargando...</p>
+              ) : movimientos.length === 0 ? (
+                <p className="text-center text-xs text-outline italic py-8">Sin movimientos todavía.</p>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="text-[9px] font-black uppercase tracking-widest text-on-surface-variant">
+                      <th className="px-3 py-2">Fecha</th>
+                      <th className="px-3 py-2">Tipo</th>
+                      <th className="px-3 py-2 text-right">Cantidad</th>
+                      <th className="px-3 py-2 text-right">Stock resultante</th>
+                      <th className="px-3 py-2">Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/5">
+                    {movimientos.map((m) => {
+                      const meta = TIPO_MOVIMIENTO_LABEL[m.tipo] || { label: m.tipo, color: 'text-slate-700 bg-slate-100' };
+                      const esBaja = m.tipo === 'venta' || m.tipo === 'salida';
+                      return (
+                        <tr key={m.id}>
+                          <td className="px-3 py-2.5 font-bold text-on-surface-variant whitespace-nowrap">
+                            {new Date(m.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${meta.color}`}>{meta.label}</span>
+                          </td>
+                          <td className={`px-3 py-2.5 text-right font-black ${esBaja ? 'text-error' : 'text-emerald-600'}`}>
+                            {esBaja ? '-' : '+'}{Number(m.cantidad).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold text-on-surface">
+                            {Number(m.stock_nuevo).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2.5 text-on-surface-variant">{m.motivo || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

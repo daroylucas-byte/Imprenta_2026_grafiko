@@ -145,6 +145,26 @@ const KanbanPage: React.FC = () => {
   const applyStatusUpdate = async (job: Job, newStatus: string) => {
     try {
       const id = job.id;
+
+      // Pasar a EN PRODUCCIÓN también descuenta stock de los productos vendidos en el trabajo
+      // (Fase 12): esto lo hace la RPC atómica avanzar_a_produccion, no un update directo. Es
+      // idempotente (si ya se descontó, no vuelve a hacerlo) y revierte solo si el trabajo se anula.
+      if (newStatus === 'EN PRODUCCIÓN') {
+        const { data, error } = await supabase.rpc('avanzar_a_produccion', {
+          p_trabajo_id: id,
+          p_usuario_id: user?.id || null,
+        });
+        if (error) throw error;
+        const res = data && data[0];
+        const negativos = Number(res?.productos_en_negativo || 0);
+        toast.success(
+          `Trabajo movido a en producción.` +
+            (negativos > 0 ? ` ${negativos} producto(s) quedaron con stock negativo.` : '')
+        );
+        fetchJobs();
+        return;
+      }
+
       const updateData: any = { estado: newStatus };
 
       // Handle timestamps for forward moves (nombres de estado reales: PRESUPUESTADO,
@@ -154,13 +174,11 @@ const KanbanPage: React.FC = () => {
         // We set it only if it wasn't set before
         updateData.fecha_aprobacion = todayAR();
       }
-      if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_pase_produccion = new Date().toISOString();
       if (newStatus === 'TERMINADO') updateData.fecha_prod_fin = new Date().toISOString();
       if (newStatus === 'ENTREGADO') updateData.fecha_entregado = new Date().toISOString();
 
       // Clear timestamps for backward moves
       if (newStatus === 'PRESUPUESTADO') updateData.fecha_aprobacion = null;
-      if (newStatus === 'EN PRODUCCIÓN') updateData.fecha_prod_fin = null;
       if (newStatus === 'TERMINADO') {
         // If we are coming back from ENTREGADO, we should clear fecha_entregado
         updateData.fecha_entregado = null;

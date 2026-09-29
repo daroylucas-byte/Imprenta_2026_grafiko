@@ -30,6 +30,14 @@ interface InsumoOption {
   activo?: boolean;
 }
 
+interface ProductoOption {
+  id: string;
+  nombre: string;
+  unidad_medida: string;
+  stock: number;
+  activo?: boolean;
+}
+
 interface TipoGastoOption {
   id: string;
   nombre: string;
@@ -37,9 +45,13 @@ interface TipoGastoOption {
 
 interface PurchaseItemRow {
   rowId: string;
+  tipo: 'insumo' | 'producto';
   insumoId: string;
   insumoSearch: string;
   isDropdownOpen: boolean;
+  productoId: string;
+  productoSearch: string;
+  isProductoDropdownOpen: boolean;
   cantidad: number | string;
   enUnidadCompra: boolean;
   costoUnitario: number | string;
@@ -51,6 +63,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
   const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [insumos, setInsumos] = useState<InsumoOption[]>([]);
+  const [productos, setProductos] = useState<ProductoOption[]>([]);
   const [tiposGasto, setTiposGasto] = useState<TipoGastoOption[]>([]);
   const [efectivoEsperadoCaja, setEfectivoEsperadoCaja] = useState<number | null>(null);
   const { user } = useAuthStore();
@@ -72,9 +85,13 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
   const [items, setItems] = useState<PurchaseItemRow[]>([
     {
       rowId: 'row-1',
+      tipo: 'insumo',
       insumoId: '',
       insumoSearch: '',
       isDropdownOpen: false,
+      productoId: '',
+      productoSearch: '',
+      isProductoDropdownOpen: false,
       cantidad: '',
       enUnidadCompra: true,
       costoUnitario: '',
@@ -91,7 +108,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [supRes, insRes, tgRes, cajaRes] = await Promise.all([
+        const [supRes, insRes, prodRes, tgRes, cajaRes] = await Promise.all([
           supabase
             .from('v_saldo_proveedores')
             .select('id, nombre, condicion_pago, saldo_pendiente, activo')
@@ -100,6 +117,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
           supabase
             .from('v_insumos_stock')
             .select('id, nombre, codigo, unidad_stock_nombre, unidad_compra_nombre, factor_compra, stock, ultimo_costo_compra, activo')
+            .eq('activo', true)
+            .order('nombre', { ascending: true }),
+          supabase
+            .from('v_productos_stock')
+            .select('id, nombre, unidad_medida, stock, activo')
             .eq('activo', true)
             .order('nombre', { ascending: true }),
           supabase
@@ -114,9 +136,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
 
         if (supRes.error) throw supRes.error;
         if (insRes.error) throw insRes.error;
+        if (prodRes.error) throw prodRes.error;
 
         setSuppliers(supRes.data || []);
         setInsumos(insRes.data || []);
+        setProductos(prodRes.data || []);
         const tgs = tgRes.data || [];
         setTiposGasto(tgs);
 
@@ -154,14 +178,55 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
       ...prev,
       {
         rowId: `row-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        tipo: 'insumo',
         insumoId: '',
         insumoSearch: '',
         isDropdownOpen: false,
+        productoId: '',
+        productoSearch: '',
+        isProductoDropdownOpen: false,
         cantidad: '',
         enUnidadCompra: true,
         costoUnitario: '',
       },
     ]);
+  };
+
+  // Cambiar si el ítem es un insumo o un producto ya elaborado: limpia la selección anterior
+  const handleToggleTipoItem = (index: number, tipo: 'insumo' | 'producto') => {
+    setItems((prev) =>
+      prev.map((it, i) =>
+        i === index
+          ? {
+              ...it,
+              tipo,
+              insumoId: '',
+              insumoSearch: '',
+              isDropdownOpen: false,
+              productoId: '',
+              productoSearch: '',
+              isProductoDropdownOpen: false,
+              enUnidadCompra: true,
+              costoUnitario: '',
+            }
+          : it
+      )
+    );
+  };
+
+  const handleSelectProducto = (index: number, prod: ProductoOption) => {
+    setItems((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              productoId: prod.id,
+              productoSearch: prod.nombre,
+              isProductoDropdownOpen: false,
+            }
+          : item
+      )
+    );
   };
 
   const handleRemoveItem = (index: number) => {
@@ -272,8 +337,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (!it.insumoId) {
+      if (it.tipo === 'insumo' && !it.insumoId) {
         toast.error(`El ítem #${i + 1} no tiene un insumo seleccionado`);
+        return;
+      }
+      if (it.tipo === 'producto' && !it.productoId) {
+        toast.error(`El ítem #${i + 1} no tiene un producto seleccionado`);
         return;
       }
       const cant = Number(it.cantidad);
@@ -298,9 +367,10 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
       const { data, error } = await supabase.rpc('registrar_compra', {
         p_proveedor_id: selectedSupplier.id,
         p_items: items.map((i) => ({
-          insumo_id: i.insumoId,
+          insumo_id: i.tipo === 'insumo' ? i.insumoId : null,
+          producto_id: i.tipo === 'producto' ? i.productoId : null,
           cantidad: Number(i.cantidad),
-          en_unidad_compra: i.enUnidadCompra,
+          en_unidad_compra: i.tipo === 'insumo' ? i.enUnidadCompra : false,
           costo_unitario: Number(i.costoUnitario),
         })),
         p_condicion_pago: condicionPago,
@@ -531,50 +601,81 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
               <div className="space-y-3">
                 {items.map((item, index) => {
                   const ins = insumos.find((x) => x.id === item.insumoId);
+                  const prod = productos.find((x) => x.id === item.productoId);
                   const hasUnidadCompra = Boolean(ins?.unidad_compra_nombre);
                   const factor = Number(ins?.factor_compra) || 1;
                   const cantNum = Number(item.cantidad) || 0;
                   const costoNum = Number(item.costoUnitario) || 0;
                   const subtotalNum = cantNum * costoNum;
+                  const filteredInsumos = insumos.filter((i) => {
+                    const query = item.insumoSearch.toLowerCase();
+                    return (
+                      i.nombre.toLowerCase().includes(query) ||
+                      (i.codigo && i.codigo.toLowerCase().includes(query))
+                    );
+                  });
+                  const filteredProductos = productos.filter((p) =>
+                    p.nombre.toLowerCase().includes(item.productoSearch.toLowerCase())
+                  );
 
                   return (
                     <div
                       key={item.rowId}
                       className="p-4 bg-surface-container-low/40 rounded-2xl border border-outline-variant/10 space-y-3 relative transition-all hover:border-primary/20"
                     >
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
-                        {/* Insumo Combobox */}
-                        <div className="md:col-span-5 relative space-y-1">
-                          <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
-                            Insumo #{index + 1} <span className="text-error">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={item.insumoSearch}
-                            onChange={(e) => {
-                              updateItemField(index, 'insumoSearch', e.target.value);
-                              updateItemField(index, 'isDropdownOpen', true);
-                              if (item.insumoId) updateItemField(index, 'insumoId', '');
-                            }}
-                            onFocus={() => updateItemField(index, 'isDropdownOpen', true)}
-                            onBlur={() =>
-                              setTimeout(() => updateItemField(index, 'isDropdownOpen', false), 200)
-                            }
-                            placeholder="Buscar insumo..."
-                            className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
-                          />
+                      {/* Toggle Insumo / Producto */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest">
+                          Ítem #{index + 1}
+                        </span>
+                        <div className="flex rounded-lg overflow-hidden border border-outline-variant/20 text-[10px] font-black">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTipoItem(index, 'insumo')}
+                            className={`px-3 py-1 transition-colors ${
+                              item.tipo === 'insumo' ? 'bg-emerald-600 text-white' : 'bg-white text-on-surface-variant hover:bg-surface-container-low'
+                            }`}
+                          >
+                            Insumo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTipoItem(index, 'producto')}
+                            className={`px-3 py-1 transition-colors ${
+                              item.tipo === 'producto' ? 'bg-indigo-600 text-white' : 'bg-white text-on-surface-variant hover:bg-surface-container-low'
+                            }`}
+                          >
+                            Producto ya elaborado
+                          </button>
+                        </div>
+                      </div>
 
-                          {item.isDropdownOpen && (
-                            <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-56 overflow-y-auto">
-                              {insumos
-                                .filter((i) => {
-                                  const query = item.insumoSearch.toLowerCase();
-                                  return (
-                                    i.nombre.toLowerCase().includes(query) ||
-                                    (i.codigo && i.codigo.toLowerCase().includes(query))
-                                  );
-                                })
-                                .map((i) => (
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                        {item.tipo === 'insumo' ? (
+                          /* Insumo Combobox */
+                          <div className="md:col-span-5 relative space-y-1">
+                            <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
+                              Insumo <span className="text-error">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={item.insumoSearch}
+                              onChange={(e) => {
+                                updateItemField(index, 'insumoSearch', e.target.value);
+                                updateItemField(index, 'isDropdownOpen', true);
+                                if (item.insumoId) updateItemField(index, 'insumoId', '');
+                              }}
+                              onFocus={() => updateItemField(index, 'isDropdownOpen', true)}
+                              onBlur={() =>
+                                setTimeout(() => updateItemField(index, 'isDropdownOpen', false), 200)
+                              }
+                              placeholder="Buscar insumo..."
+                              className="w-full bg-white border border-outline-variant/10 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-primary/20 shadow-sm"
+                            />
+
+                            {item.isDropdownOpen && (
+                              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-56 overflow-y-auto">
+                                {filteredInsumos.map((i) => (
                                   <button
                                     type="button"
                                     key={i.id}
@@ -594,26 +695,76 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
                                   </button>
                                 ))}
 
-                              {insumos.filter((i) => {
-                                const query = item.insumoSearch.toLowerCase();
-                                return (
-                                  i.nombre.toLowerCase().includes(query) ||
-                                  (i.codigo && i.codigo.toLowerCase().includes(query))
-                                );
-                              }).length === 0 && (
-                                <p className="px-3 py-2 text-xs text-outline/50 italic">
-                                  No hay insumos que coincidan
-                                </p>
-                              )}
-                            </div>
-                          )}
+                                {filteredInsumos.length === 0 && (
+                                  <p className="px-3 py-2 text-xs text-outline/50 italic">
+                                    No hay insumos que coincidan
+                                  </p>
+                                )}
+                              </div>
+                            )}
 
-                          {ins && (
-                            <p className="text-[10px] text-outline font-medium ml-1">
-                              Stock actual: {Number(ins.stock).toLocaleString('es-AR', { maximumFractionDigits: 3 })} {ins.unidad_stock_nombre}
-                            </p>
-                          )}
-                        </div>
+                            {ins && (
+                              <p className="text-[10px] text-outline font-medium ml-1">
+                                Stock actual: {Number(ins.stock).toLocaleString('es-AR', { maximumFractionDigits: 3 })} {ins.unidad_stock_nombre}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          /* Producto Combobox */
+                          <div className="md:col-span-5 relative space-y-1">
+                            <label className="text-[9px] font-black text-indigo-700 uppercase tracking-widest ml-1">
+                              Producto <span className="text-error">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={item.productoSearch}
+                              onChange={(e) => {
+                                updateItemField(index, 'productoSearch', e.target.value);
+                                updateItemField(index, 'isProductoDropdownOpen', true);
+                                if (item.productoId) updateItemField(index, 'productoId', '');
+                              }}
+                              onFocus={() => updateItemField(index, 'isProductoDropdownOpen', true)}
+                              onBlur={() =>
+                                setTimeout(() => updateItemField(index, 'isProductoDropdownOpen', false), 200)
+                              }
+                              placeholder="Buscar producto..."
+                              className="w-full bg-white border border-indigo-200 rounded-xl py-2 px-3 text-xs font-bold text-on-surface focus:ring-2 focus:ring-indigo-300 shadow-sm"
+                            />
+
+                            {item.isProductoDropdownOpen && (
+                              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-2xl border border-outline-variant/10 max-h-56 overflow-y-auto">
+                                {filteredProductos.map((p) => (
+                                  <button
+                                    type="button"
+                                    key={p.id}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      handleSelectProducto(index, p);
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-indigo-50 transition-colors border-b border-outline-variant/5 flex justify-between items-center"
+                                  >
+                                    <span className="text-on-surface font-extrabold">{p.nombre}</span>
+                                    <span className="text-[10px] text-outline font-medium">
+                                      Stock: {Number(p.stock).toLocaleString('es-AR', { maximumFractionDigits: 3 })} {p.unidad_medida}
+                                    </span>
+                                  </button>
+                                ))}
+
+                                {filteredProductos.length === 0 && (
+                                  <p className="px-3 py-2 text-xs text-outline/50 italic">
+                                    No hay productos que coincidan
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {prod && (
+                              <p className="text-[10px] text-outline font-medium ml-1">
+                                Stock actual: {Number(prod.stock).toLocaleString('es-AR', { maximumFractionDigits: 3 })} {prod.unidad_medida}
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {/* Cantidad */}
                         <div className="md:col-span-2 space-y-1">
@@ -636,7 +787,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
                           <label className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
                             Unidad
                           </label>
-                          {ins && hasUnidadCompra ? (
+                          {item.tipo === 'insumo' && ins && hasUnidadCompra ? (
                             <div className="flex flex-col gap-1 text-[11px] pt-1">
                               <label className="flex items-center gap-1.5 cursor-pointer font-bold text-on-surface select-none">
                                 <input
@@ -661,7 +812,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
                             </div>
                           ) : (
                             <p className="text-xs font-bold text-on-surface pt-2">
-                              {ins?.unidad_stock_nombre || '—'}
+                              {item.tipo === 'insumo' ? ins?.unidad_stock_nombre || '—' : prod?.unidad_medida || '—'}
                             </p>
                           )}
                         </div>
@@ -719,9 +870,13 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ onClose, onSuccess }) => 
               </div>
 
               <p className="text-[11px] text-outline font-medium">
-                Si el insumo no existe, crealo primero en{' '}
+                Si el insumo o el producto no existen, creá el insumo en{' '}
                 <a href="/insumos" target="_blank" rel="noreferrer" className="text-primary font-bold underline">
                   Insumos
+                </a>{' '}
+                o el producto en{' '}
+                <a href="/productos" target="_blank" rel="noreferrer" className="text-primary font-bold underline">
+                  Productos
                 </a>
                 .
               </p>
