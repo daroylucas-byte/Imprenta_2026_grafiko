@@ -301,7 +301,9 @@ BEGIN
   ok := (v_n = 0); n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 14c hay ' || v_n || ' vista(s) sin security_invoker (saltean RLS)' || E'\n'; END IF;
   SELECT count(*) INTO v_n FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND p.proconfig IS NULL AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e');
   ok := (v_n = 0); n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 14d hay ' || v_n || ' funcion(es) sin search_path fijo' || E'\n'; END IF;
-  SELECT count(*) INTO v_n FROM pg_tables t WHERE t.schemaname = 'public' AND (NOT t.rowsecurity OR NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t.tablename));
+  -- t_keepalive es la unica excepcion a proposito: RLS activada pero SIN ninguna policy (2026-09-28),
+  -- para que quede totalmente inaccesible por la API incluso para authenticated (no expone datos sensibles).
+  SELECT count(*) INTO v_n FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename <> 't_keepalive' AND (NOT t.rowsecurity OR NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = t.tablename));
   ok := (v_n = 0); n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 14e hay ' || v_n || ' tabla(s) sin RLS o sin politicas' || E'\n'; END IF;
   SELECT count(*) INTO v_n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prokind = 'f' AND proname <> 'hoy_ar' AND pg_get_functiondef(oid) ~* 'current_date';
   ok := (v_n = 0); n_tests := n_tests + 1; IF NOT ok THEN fails := fails + 1; r := r || 'FALLA 14f hay ' || v_n || ' funcion(es) que usan CURRENT_DATE (usar hoy_ar())' || E'\n'; END IF;
