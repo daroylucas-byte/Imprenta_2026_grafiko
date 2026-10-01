@@ -20,12 +20,23 @@ const SITUACIONES_IVA = [
   'Sujeto no Categorizado'
 ];
 
+interface IdentidadImagen {
+  id: string;
+  imagen_url: string;
+  descripcion: string | null;
+  tipo: 'logo' | 'trabajo';
+}
+
+const LIMITES_IDENTIDAD: Record<'logo' | 'trabajo', number> = { logo: 3, trabajo: 2 };
+
 const ClientModal: React.FC<ClientModalProps> = ({ clientId, initialNombre, onClose, onSuccess }) => {
   const { register, handleSubmit, reset, formState: { errors } } = useForm<Record<string, any>>({
     defaultValues: initialNombre ? { razon_social: initialNombre.trim() } : undefined,
   });
   const [loading, setLoading] = useState(false);
   const [rubros, setRubros] = useState<{ id: string; nombre: string }[]>([]);
+  const [identidadImagenes, setIdentidadImagenes] = useState<IdentidadImagen[]>([]);
+  const [uploadingTipo, setUploadingTipo] = useState<'logo' | 'trabajo' | null>(null);
 
   // Fetch rubros de cliente para el dropdown
   useEffect(() => {
@@ -65,6 +76,78 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, initialNombre, onCl
       fetchClient();
     }
   }, [clientId, reset]);
+
+  const fetchIdentidadImagenes = async (id: string) => {
+    const { data, error } = await supabase
+      .from('t_identidad_visual_cliente')
+      .select('id, imagen_url, descripcion, tipo')
+      .eq('cliente_id', id)
+      .order('created_at', { ascending: true });
+    if (error) {
+      toast.error('Error al cargar imágenes de identidad visual: ' + error.message);
+      return;
+    }
+    setIdentidadImagenes((data || []) as IdentidadImagen[]);
+  };
+
+  useEffect(() => {
+    if (clientId) {
+      fetchIdentidadImagenes(clientId);
+    } else {
+      setIdentidadImagenes([]);
+    }
+  }, [clientId]);
+
+  const handleUploadImagen = async (tipo: 'logo' | 'trabajo', file: File) => {
+    if (!clientId) return;
+    setUploadingTipo(tipo);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 11)}.${fileExt}`;
+      const filePath = `identidad-clientes/${clientId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage.from('marketing').upload(filePath, file);
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage.from('marketing').getPublicUrl(filePath);
+
+      const { error: insertError } = await supabase.from('t_identidad_visual_cliente').insert({
+        cliente_id: clientId,
+        imagen_url: publicUrl,
+        descripcion: file.name,
+        tipo,
+      });
+      if (insertError) throw insertError;
+
+      toast.success('Imagen subida correctamente');
+      await fetchIdentidadImagenes(clientId);
+    } catch (err: any) {
+      toast.error(err.message || 'Error al subir la imagen');
+    } finally {
+      setUploadingTipo(null);
+    }
+  };
+
+  const handleDeleteImagen = async (img: IdentidadImagen) => {
+    if (!confirm('¿Eliminar esta imagen?')) return;
+    try {
+      const { error } = await supabase.from('t_identidad_visual_cliente').delete().eq('id', img.id);
+      if (error) throw error;
+      try {
+        const urlObj = new URL(img.imagen_url);
+        const pathParts = urlObj.pathname.split('/marketing/');
+        if (pathParts.length > 1) {
+          await supabase.storage.from('marketing').remove([decodeURIComponent(pathParts[1])]);
+        }
+      } catch {
+        // si falla borrar del storage, la fila ya se borró; no es crítico
+      }
+      setIdentidadImagenes((prev) => prev.filter((i) => i.id !== img.id));
+      toast.success('Imagen eliminada');
+    } catch (err: any) {
+      toast.error(err.message || 'Error al eliminar la imagen');
+    }
+  };
 
   const onSubmit = async (data: any) => {
     setLoading(true);
@@ -252,13 +335,88 @@ const ClientModal: React.FC<ClientModalProps> = ({ clientId, initialNombre, onCl
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">Observaciones</label>
-              <textarea 
+              <textarea
                 {...register('observaciones')}
                 rows={3}
                 className="w-full bg-surface-container-low border-none rounded-3xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-primary/20 resize-none"
                 placeholder="Notas adicionales sobre el cliente..."
               />
             </div>
+          </div>
+
+          <hr className="border-outline-variant/10" />
+
+          {/* Section: Identidad Visual */}
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 text-primary">
+              <span className="material-symbols-outlined font-bold">photo_library</span>
+              <h4 className="text-sm font-black uppercase tracking-[0.2em]">Identidad Visual</h4>
+            </div>
+            <p className="text-[11px] text-on-surface-variant font-medium -mt-2">
+              Logos y ejemplos de trabajos/publicidades ya hechas, para trabajar después la identidad visual de este cliente.
+            </p>
+
+            {!clientId ? (
+              <p className="text-xs font-bold text-on-surface-variant bg-surface-container-low/40 rounded-2xl p-5">
+                Guardá el cliente primero para poder subir sus imágenes de identidad visual.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {(['logo', 'trabajo'] as const).map((tipo) => {
+                  const imgs = identidadImagenes.filter((i) => i.tipo === tipo);
+                  const max = LIMITES_IDENTIDAD[tipo];
+                  const puedeAgregar = imgs.length < max;
+                  return (
+                    <div key={tipo} className="space-y-2">
+                      <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1">
+                        {tipo === 'logo' ? 'Logos' : 'Trabajos / Publicidades'} ({imgs.length}/{max})
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {imgs.map((img) => (
+                          <div
+                            key={img.id}
+                            className="relative aspect-square rounded-xl overflow-hidden border border-outline-variant/20 group bg-surface-container-low"
+                          >
+                            <img src={img.imagen_url} alt={img.descripcion || tipo} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteImagen(img)}
+                              title="Eliminar"
+                              className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-black/60 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <span className="material-symbols-outlined text-sm">close</span>
+                            </button>
+                          </div>
+                        ))}
+                        {puedeAgregar && (
+                          <label
+                            className={`aspect-square rounded-xl border-2 border-dashed border-outline-variant/30 flex flex-col items-center justify-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all ${
+                              uploadingTipo === tipo ? 'opacity-50 pointer-events-none' : ''
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleUploadImagen(tipo, file);
+                                e.target.value = '';
+                              }}
+                            />
+                            {uploadingTipo === tipo ? (
+                              <div className="w-5 h-5 border-2 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                            ) : (
+                              <span className="material-symbols-outlined text-2xl text-outline/50">add_photo_alternate</span>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </form>
 
