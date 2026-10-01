@@ -77,7 +77,53 @@ interface CampaignFormInput {
   contexto_extra: string;
 }
 
+// Interfaces y Constantes para Módulo Imagen Suelta
+type LogoUbicacion = 'superior_izquierda' | 'superior_derecha' | 'inferior_izquierda' | 'inferior_derecha' | 'centro' | 'sin_logo';
+
+interface ImagenAisladaCliente {
+  id: string;
+  cliente_id: string;
+  ancho_px: number;
+  alto_px: number;
+  logo_ubicacion: LogoUbicacion;
+  informacion: string;
+  textos_obligatorios: string[];
+  imagenes_url: string[];
+  usuario_id: string | null;
+  cliente_nombre?: string;
+  created_at: string;
+}
+
+interface TextoObligatorioItem {
+  rowId: string;
+  texto: string;
+}
+
+const MEDIDAS_PRESETS = [
+  { label: 'Post cuadrado (1080×1080)', ancho: 1080, alto: 1080, id: '1080x1080' },
+  { label: 'Story / Reel (1080×1920)', ancho: 1080, alto: 1920, id: '1080x1920' },
+  { label: 'Post horizontal (1200×628)', ancho: 1200, alto: 628, id: '1200x628' },
+  { label: 'Banner web (1600×400)', ancho: 1600, alto: 400, id: '1600x400' },
+  { label: 'Personalizado…', ancho: 0, alto: 0, id: 'custom' },
+];
+
+const LOGO_UBICACION_OPTIONS: { label: string; value: LogoUbicacion }[] = [
+  { label: 'Esquina superior izquierda', value: 'superior_izquierda' },
+  { label: 'Esquina superior derecha', value: 'superior_derecha' },
+  { label: 'Esquina inferior izquierda', value: 'inferior_izquierda' },
+  { label: 'Esquina inferior derecha', value: 'inferior_derecha' },
+  { label: 'Centrado', value: 'centro' },
+  { label: 'Sin logo', value: 'sin_logo' },
+];
+
 const PLATFORMS_OPTIONS = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'Twitter/X', 'YouTube'];
+
+const generateRowId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+};
 
 const ClientCampaignsPage: React.FC = () => {
   const { user } = useAuthStore();
@@ -98,7 +144,7 @@ const ClientCampaignsPage: React.FC = () => {
   const [selectedCampana, setSelectedCampana] = useState<CampanaCliente | null>(null);
   const [posts, setPosts] = useState<CampanaPost[]>([]);
 
-  // Action Loading States
+  // Action Loading States (Campañas)
   const [uploadingImage, setUploadingImage] = useState(false);
   const [analyzingIdentidad, setAnalyzingIdentidad] = useState(false);
   const [creatingCampana, setCreatingCampana] = useState(false);
@@ -106,9 +152,24 @@ const ClientCampaignsPage: React.FC = () => {
   const [generatingWeekNum, setGeneratingWeekNum] = useState<number | null>(null);
   const [generatingPostImageId, setGeneratingPostImageId] = useState<string | null>(null);
 
-  // UI States
+  // UI States (Campañas)
   const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
   const [activeWeekTab, setActiveWeekTab] = useState<number>(1);
+
+  // Main Tabs State (Campañas vs Imagen Suelta)
+  const [activeMainTab, setActiveMainTab] = useState<'campanas' | 'imagen_suelta'>('campanas');
+
+  // Imagen Suelta States
+  const [medidaPreset, setMedidaPreset] = useState<string>('1080x1080');
+  const [customAncho, setCustomAncho] = useState<number>(1080);
+  const [customAlto, setCustomAlto] = useState<number>(1080);
+  const [logoUbicacion, setLogoUbicacion] = useState<LogoUbicacion>('inferior_derecha');
+  const [informacionImagen, setInformacionImagen] = useState<string>('');
+  const [textosObligatorios, setTextosObligatorios] = useState<TextoObligatorioItem[]>([]);
+  const [generatingIsolatedImage, setGeneratingIsolatedImage] = useState(false);
+  const [latestGeneratedImages, setLatestGeneratedImages] = useState<string[] | null>(null);
+  const [imagenesAisladas, setImagenesAisladas] = useState<ImagenAisladaCliente[]>([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
 
   // React Hook Form for campaign creation
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm<CampaignFormInput>({
@@ -238,10 +299,7 @@ const ClientCampaignsPage: React.FC = () => {
       if (error) throw error;
       setCampanas(data || []);
 
-      // Update selected campaign reference if any exists (functional updater
-      // para no depender de `selectedCampana` en este callback: dependerlo
-      // causaba un loop infinito porque setSelectedCampana recreaba
-      // fetchCampanas, que a su vez era dependencia del useEffect que la invoca).
+      // Update selected campaign reference if any exists (functional updater)
       setSelectedCampana(prev => {
         const targetId = selectCampanaId ?? prev?.id;
         if (!targetId) return prev;
@@ -272,25 +330,50 @@ const ClientCampaignsPage: React.FC = () => {
     }
   }, []);
 
+  // Fetch isolated images history for selected client
+  const fetchImagenesAisladas = useCallback(async (clienteId: string) => {
+    setLoadingHistorial(true);
+    try {
+      const { data, error } = await supabase
+        .from('v_imagenes_aisladas_cliente')
+        .select('*')
+        .eq('cliente_id', clienteId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+      setImagenesAisladas(data || []);
+    } catch (err: any) {
+      console.error('Error fetching isolated images history:', err);
+      toast.error('Error al cargar historial de imágenes sueltas: ' + err.message);
+    } finally {
+      setLoadingHistorial(false);
+    }
+  }, []);
+
   // Whenever selected client changes, fetch their resources
   useEffect(() => {
     if (selectedCliente) {
       setLoading(true);
       Promise.all([
         fetchIdentidadYAnalisis(selectedCliente.id),
-        fetchCampanas(selectedCliente.id)
+        fetchCampanas(selectedCliente.id),
+        fetchImagenesAisladas(selectedCliente.id),
       ]).finally(() => setLoading(false));
       setSelectedCampana(null);
       setPosts([]);
       setIsNewCampaignOpen(false);
+      setLatestGeneratedImages(null);
     } else {
       setIdentidades([]);
       setAnalisis(null);
       setCampanas([]);
       setSelectedCampana(null);
       setPosts([]);
+      setImagenesAisladas([]);
+      setLatestGeneratedImages(null);
     }
-  }, [selectedCliente, fetchIdentidadYAnalisis, fetchCampanas]);
+  }, [selectedCliente, fetchIdentidadYAnalisis, fetchCampanas, fetchImagenesAisladas]);
 
   // Whenever selected campaign changes, fetch posts
   useEffect(() => {
@@ -580,6 +663,102 @@ const ClientCampaignsPage: React.FC = () => {
     }
   };
 
+  // Dynamic mandatory text items handlers for Imagen Suelta
+  const handleAddTextoObligatorio = () => {
+    setTextosObligatorios(prev => [...prev, { rowId: generateRowId(), texto: '' }]);
+  };
+
+  const handleUpdateTextoObligatorio = (rowId: string, value: string) => {
+    setTextosObligatorios(prev =>
+      prev.map(item => (item.rowId === rowId ? { ...item, texto: value } : item))
+    );
+  };
+
+  const handleRemoveTextoObligatorio = (rowId: string) => {
+    setTextosObligatorios(prev => prev.filter(item => item.rowId !== rowId));
+  };
+
+  // Invoke generar-imagen-aislada Edge Function
+  const handleGenerarImagenAislada = async () => {
+    if (!selectedCliente) return;
+
+    let finalAncho = 1080;
+    let finalAlto = 1080;
+    if (medidaPreset === 'custom') {
+      finalAncho = Number(customAncho);
+      finalAlto = Number(customAlto);
+      if (!finalAncho || finalAncho <= 0 || !finalAlto || finalAlto <= 0) {
+        toast.error('Ingresá medidas de ancho y alto válidas (mayores a 0 px).');
+        return;
+      }
+    } else {
+      const preset = MEDIDAS_PRESETS.find(p => p.id === medidaPreset);
+      if (preset) {
+        finalAncho = preset.ancho;
+        finalAlto = preset.alto;
+      }
+    }
+
+    if (!informacionImagen.trim()) {
+      toast.error('Ingresá la información o contexto de la imagen.');
+      return;
+    }
+
+    if (saldo < 3750) {
+      toast.error('Saldo insuficiente para generar 3 alternativas (se requieren 3.750 créditos).');
+      return;
+    }
+
+    // Filter out empty lines
+    const validTextos = textosObligatorios
+      .map(t => t.texto.trim())
+      .filter(t => t.length > 0);
+
+    setGeneratingIsolatedImage(true);
+    const toastId = toast.loading('Generando 3 alternativas con Gemini... esto puede demorar un minuto, se generan de a una.');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('generar-imagen-aislada', {
+        body: {
+          cliente_id: selectedCliente.id,
+          ancho_px: finalAncho,
+          alto_px: finalAlto,
+          logo_ubicacion: logoUbicacion,
+          informacion: informacionImagen.trim(),
+          textos_obligatorios: validTextos,
+          usuario_id: userId,
+        }
+      });
+
+      if (error) throw error;
+      if (data && data.error) throw new Error(data.error);
+
+      const generadas = data?.generadas ?? data?.imagenes_url?.length ?? 0;
+      const solicitadas = data?.solicitadas ?? 3;
+      const urls: string[] = data?.imagenes_url ?? [];
+
+      if (generadas < solicitadas) {
+        toast.success(`Se generaron ${generadas} de ${solicitadas} alternativas`, { id: toastId });
+      } else {
+        toast.success('¡3 alternativas generadas con éxito!', { id: toastId });
+      }
+
+      setLatestGeneratedImages(urls);
+      await fetchSaldo();
+      await fetchImagenesAisladas(selectedCliente.id);
+    } catch (err: any) {
+      await handleEdgeFunctionError(err, 'Error al generar imágenes aisladas');
+      toast.dismiss(toastId);
+    } finally {
+      setGeneratingIsolatedImage(false);
+    }
+  };
+
+  const getLogoUbicacionLabel = (val: string) => {
+    const match = LOGO_UBICACION_OPTIONS.find(o => o.value === val);
+    return match ? match.label : val;
+  };
+
   // Filter clients locally
   const filteredClientes = clientes.filter(c =>
     c.razon_social.toLowerCase().includes(searchClienteQuery.toLowerCase())
@@ -598,7 +777,7 @@ const ClientCampaignsPage: React.FC = () => {
             <h1 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">Campañas de Clientes</h1>
             <p className="text-xs text-on-surface-variant font-bold uppercase tracking-widest text-violet-700">Inteligencia Artificial para Clientes de Grafiko</p>
             <p className="text-sm font-medium text-slate-500 max-w-sm mt-2">
-              Selecciona un cliente para comenzar a analizar su identidad visual, diseñar planes estratégicos semanales y generar posts automáticos.
+              Seleccioná un cliente para comenzar a analizar su identidad visual, diseñar planes estratégicos semanales o generar imágenes sueltas.
             </p>
           </div>
 
@@ -654,7 +833,7 @@ const ClientCampaignsPage: React.FC = () => {
                   <span className="material-symbols-outlined text-2xl font-bold">campaign</span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest">Campaña de IA activa para:</p>
+                  <p className="text-[10px] font-black text-violet-700 uppercase tracking-widest">Módulo de Marketing IA para:</p>
                   <h2 className="text-2xl font-headline font-extrabold text-on-surface tracking-tight leading-tight mt-0.5">
                     {selectedCliente.razon_social}
                   </h2>
@@ -688,107 +867,159 @@ const ClientCampaignsPage: React.FC = () => {
 
           </div>
 
+          {/* Sección Superior: Identidad Visual (Siempre visible con cliente seleccionado) */}
+          <div className="bg-surface-container-lowest p-6 md:p-8 rounded-[2rem] shadow-sm border border-outline-variant/10 space-y-6">
+            <div>
+              <h3 className="text-lg font-headline font-extrabold text-on-surface tracking-tight">Identidad Visual</h3>
+              <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">Guía estética del cliente y referencias de marca</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              
+              {/* Columna Izquierda: Galería, Subida y Botón Analizar */}
+              <div className="lg:col-span-6 space-y-4">
+                {/* Thumbnail gallery */}
+                {identidades.length > 0 ? (
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">Referencias de marca ({identidades.length}/5)</span>
+                    <div className="grid grid-cols-5 gap-2">
+                      {identidades.slice(0, 5).map((img) => (
+                        <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 group border border-outline-variant/10">
+                          <img src={img.imagen_url} alt="Referencia" className="w-full h-full object-cover" />
+                          <button
+                            onClick={() => handleDeleteIdentidad(img.id, img.imagen_url)}
+                            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
+                            title="Eliminar"
+                          >
+                            <span className="material-symbols-outlined text-sm font-black">delete</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center text-xs text-outline/70">
+                    Sin imágenes de referencia. Subí logos o piezas anteriores del cliente.
+                  </div>
+                )}
+
+                {/* Upload input */}
+                {identidades.length < 5 && (
+                  <div>
+                    <label className="flex flex-col items-center justify-center border border-dashed border-outline-variant/30 hover:border-violet-500/50 rounded-xl p-3.5 cursor-pointer bg-slate-50/50 hover:bg-violet-50/20 transition-all text-center group">
+                      <span className="material-symbols-outlined text-2xl text-outline/50 group-hover:text-violet-600 transition-colors">cloud_upload</span>
+                      <span className="text-[10px] font-bold text-on-surface-variant mt-1 group-hover:text-violet-700">Subir imágenes de referencia</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={uploadingImage}
+                        onChange={handleUploadIdentidad}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {/* Analyze Identity action */}
+                <div>
+                  <button
+                    disabled={analyzingIdentidad || identidades.length === 0 || saldo < 500}
+                    onClick={handleAnalizarIdentidad}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-violet-600 text-white font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-md shadow-violet-500/10 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+                  >
+                    {analyzingIdentidad ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                        <span>Analizando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-sm font-bold">palette</span>
+                        <span>Analizar Estilo (500)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Columna Derecha: Reporte de Estilo Extraído */}
+              <div className="lg:col-span-6">
+                {analisis && analisis.estilo_descripcion ? (
+                  <div className="bg-violet-50/50 border border-violet-100/50 rounded-2xl p-4 space-y-2.5 animate-in fade-in duration-300">
+                    <div className="flex items-center gap-1.5 text-violet-700">
+                      <span className="material-symbols-outlined text-lg">auto_awesome</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest">Perfil de Estilo IA</span>
+                    </div>
+                    <p className="text-xs text-on-surface-variant font-medium leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
+                      {analisis.estilo_descripcion}
+                    </p>
+                    <div className="text-[8px] text-outline font-bold uppercase tracking-widest pt-2 border-t border-violet-100/30 text-right">
+                      Actualizado: {formatDateAR(analisis.updated_at)}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-6 text-center text-xs text-outline/70 flex flex-col items-center justify-center space-y-2 min-h-[140px]">
+                    <span className="material-symbols-outlined text-2xl text-outline/40">palette</span>
+                    <p className="max-w-xs leading-normal">
+                      Presioná "Analizar Estilo" para que Gemini extraiga la paleta de colores, tipografías y tono de marca que se usarán en las generaciones.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+
+          {/* Selector de Pestañas: Campañas vs Imagen Suelta */}
+          <div className="flex items-center gap-3 bg-surface-container-lowest p-2 rounded-[2rem] border border-outline-variant/10 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('campanas')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-6 rounded-[1.5rem] font-headline font-extrabold text-xs uppercase tracking-wider transition-all ${
+                activeMainTab === 'campanas'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20'
+                  : 'text-on-surface-variant hover:bg-slate-100 hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-lg">campaign</span>
+              <span>Campañas (30 Días)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('imagen_suelta')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-6 rounded-[1.5rem] font-headline font-extrabold text-xs uppercase tracking-wider transition-all ${
+                activeMainTab === 'imagen_suelta'
+                  ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/20'
+                  : 'text-on-surface-variant hover:bg-slate-100 hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-lg">image</span>
+              <span>Imagen Suelta</span>
+              <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded tracking-widest ml-1 ${
+                activeMainTab === 'imagen_suelta'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-violet-100 text-violet-700'
+              }`}>
+                Nuevo
+              </span>
+            </button>
+          </div>
+
           {/* Main Workspace Layout */}
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center space-y-4 text-violet-300">
               <div className="w-10 h-10 border-4 border-violet-100 border-t-violet-600 rounded-full animate-spin"></div>
               <p className="text-[10px] font-black uppercase tracking-widest">Cargando datos del cliente...</p>
             </div>
-          ) : (
+          ) : activeMainTab === 'campanas' ? (
+            
+            /* PESTAÑA 1: CAMPAÑAS (Sin modificaciones de lógica) */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               
-              {/* Left Column (span 4): Paso B & Paso C */}
+              {/* Left Column (span 4): Paso C: Campaign list & "Nueva Campaña" Button */}
               <div className="lg:col-span-4 space-y-8">
-                
-                {/* Paso B: Client Visual Identity */}
-                <div className="bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant/10 space-y-6">
-                  <div>
-                    <h3 className="text-lg font-headline font-extrabold text-on-surface tracking-tight">Identidad Visual</h3>
-                    <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">Guía estética del cliente</p>
-                  </div>
-
-                  {/* Thumbnail gallery */}
-                  {identidades.length > 0 ? (
-                    <div className="space-y-2">
-                      <span className="text-[9px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">Referencias de marca ({identidades.length}/5)</span>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {identidades.slice(0, 5).map((img) => (
-                          <div key={img.id} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 group border border-outline-variant/5">
-                            <img src={img.imagen_url} alt="Referencia" className="w-full h-full object-cover" />
-                            <button
-                              onClick={() => handleDeleteIdentidad(img.id, img.imagen_url)}
-                              className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
-                              title="Eliminar"
-                            >
-                              <span className="material-symbols-outlined text-sm font-black">delete</span>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center text-xs text-outline/70">
-                      Sin imágenes de referencia. Sube logos o piezas viejas.
-                    </div>
-                  )}
-
-                  {/* Upload input */}
-                  {identidades.length < 5 && (
-                    <div className="space-y-2">
-                      <label className="flex flex-col items-center justify-center border border-dashed border-outline-variant/30 hover:border-violet-500/50 rounded-xl p-4 cursor-pointer bg-slate-50/50 hover:bg-violet-50/20 transition-all text-center group">
-                        <span className="material-symbols-outlined text-2xl text-outline/50 group-hover:text-violet-600 transition-colors">cloud_upload</span>
-                        <span className="text-[10px] font-bold text-on-surface-variant mt-1 group-hover:text-violet-700">Subir imágenes</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          disabled={uploadingImage}
-                          onChange={handleUploadIdentidad}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {/* Analyze Identity action */}
-                  <div className="space-y-3">
-                    <button
-                      disabled={analyzingIdentidad || identidades.length === 0 || saldo < 500}
-                      onClick={handleAnalizarIdentidad}
-                      className="w-full flex items-center justify-center gap-2 py-3 bg-violet-600 text-white font-bold rounded-2xl text-[10px] uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-md shadow-violet-500/10 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
-                    >
-                      {analyzingIdentidad ? (
-                        <>
-                          <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                          <span>Analizando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="material-symbols-outlined text-sm font-bold">palette</span>
-                          <span>Analizar Estilo (500)</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Analysis style report */}
-                  {analisis && analisis.estilo_descripcion && (
-                    <div className="bg-violet-50/50 border border-violet-100/50 rounded-2xl p-4 space-y-2.5 animate-in fade-in duration-300">
-                      <div className="flex items-center gap-1.5 text-violet-700">
-                        <span className="material-symbols-outlined text-lg">auto_awesome</span>
-                        <span className="text-[9px] font-black uppercase tracking-widest">Perfil de Estilo IA</span>
-                      </div>
-                      <p className="text-xs text-on-surface-variant font-medium leading-relaxed max-h-36 overflow-y-auto no-scrollbar">
-                        {analisis.estilo_descripcion}
-                      </p>
-                      <div className="text-[8px] text-outline font-bold uppercase tracking-widest pt-2 border-t border-violet-100/30 text-right">
-                        Actualizado: {formatDateAR(analisis.updated_at)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Paso C: Campaign list & "Nueva Campaña" Button */}
                 <div className="bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant/10 space-y-6">
                   <div className="flex justify-between items-center">
                     <div>
@@ -850,7 +1081,6 @@ const ClientCampaignsPage: React.FC = () => {
                     </div>
                   )}
                 </div>
-
               </div>
 
               {/* Right Column (span 8): Detailed panels (Form or Campaign details) */}
@@ -1083,7 +1313,7 @@ const ClientCampaignsPage: React.FC = () => {
                         <div>
                           <h4 className="text-base font-bold text-on-surface">Campaña sin Plan Estratégico Generado</h4>
                           <p className="text-xs text-on-surface-variant mt-1 max-w-md mx-auto leading-normal">
-                            La campaña fue guardada pero el plan estratégico digital no se pudo generar (quizás por un fallo del backend, saldo o interrupción). Genera el plan ahora.
+                            La campaña fue guardada pero el plan estratégico digital no se pudo generar (quizás por un fallo del backend, saldo o interrupción). Generá el plan ahora.
                           </p>
                         </div>
 
@@ -1173,7 +1403,7 @@ const ClientCampaignsPage: React.FC = () => {
                             
                             return (
                               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                
+                                 
                                 {/* Pilar Card */}
                                 {pilar && (
                                   <div className="bg-violet-50/20 border border-violet-100 rounded-[1.5rem] p-6 grid grid-cols-1 md:grid-cols-4 gap-6 items-center">
@@ -1222,7 +1452,7 @@ const ClientCampaignsPage: React.FC = () => {
                                 {/* Week Posts List */}
                                 {weekPosts.length === 0 ? (
                                   <div className="py-12 border border-dashed border-outline-variant/20 rounded-[1.5rem] text-center text-xs text-outline italic">
-                                    No hay posts generados para esta semana aún. Haz clic en "Generar Posts" arriba para crearlos con IA.
+                                    No hay posts generados para esta semana aún. Hacé clic en "Generar Posts" arriba para crearlos con IA.
                                   </div>
                                 ) : (
                                   <div className="space-y-6">
@@ -1455,7 +1685,7 @@ const ClientCampaignsPage: React.FC = () => {
                     <div>
                       <h3 className="text-lg font-headline font-extrabold text-on-surface">Campañas del Cliente</h3>
                       <p className="text-xs text-on-surface-variant font-medium max-w-sm mt-1 mx-auto leading-normal">
-                        Selecciona una campaña de la lista de la izquierda para ver su detalle, plan semanal y publicaciones. Si no tiene ninguna, puedes crear una nueva campaña presionando el botón "+".
+                        Seleccioná una campaña de la lista de la izquierda para ver su detalle, plan semanal y publicaciones. Si no tiene ninguna, podés crear una nueva campaña presionando el botón "+".
                       </p>
                     </div>
 
@@ -1471,6 +1701,389 @@ const ClientCampaignsPage: React.FC = () => {
                   </div>
                 )}
 
+              </div>
+
+            </div>
+          ) : (
+            
+            /* PESTAÑA 2: IMAGEN SUELTA */
+            <div className="space-y-8 animate-in fade-in duration-300">
+              
+              {/* 1. Formulario de Generación de Imagen Suelta */}
+              <div className="bg-surface-container-lowest p-8 md:p-10 rounded-[2.5rem] shadow-sm border border-outline-variant/10 space-y-8">
+                <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/5">
+                  <div>
+                    <h3 className="text-xl font-headline font-extrabold text-on-surface tracking-tight">Generar Imagen Suelta</h3>
+                    <p className="text-[10px] text-violet-700 font-black uppercase tracking-widest mt-0.5">
+                      Generá 3 alternativas personalizadas respetando la identidad visual y logo del cliente
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-violet-50 text-violet-700 px-3.5 py-1.5 rounded-xl text-xs font-black">
+                    <span className="material-symbols-outlined text-sm font-bold">token</span>
+                    <span>Costo: 3.750 créditos</span>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  {/* Fila 1: Medidas y Ubicación del logo */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Medidas */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">
+                        Medidas *
+                      </label>
+                      <select
+                        value={medidaPreset}
+                        onChange={(e) => setMedidaPreset(e.target.value)}
+                        className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-violet-700/20 transition-all shadow-inner"
+                      >
+                        {MEDIDAS_PRESETS.map(preset => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Medidas personalizadas */}
+                      {medidaPreset === 'custom' && (
+                        <div className="grid grid-cols-2 gap-3 pt-2 animate-in fade-in duration-200">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-outline uppercase tracking-widest ml-1 block">Ancho (px)</label>
+                            <input
+                              type="number"
+                              min="100"
+                              max="4096"
+                              value={customAncho || ''}
+                              onChange={(e) => setCustomAncho(parseInt(e.target.value, 10) || 0)}
+                              placeholder="1080"
+                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-bold focus:ring-2 focus:ring-violet-700/20 transition-all shadow-inner"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-outline uppercase tracking-widest ml-1 block">Alto (px)</label>
+                            <input
+                              type="number"
+                              min="100"
+                              max="4096"
+                              value={customAlto || ''}
+                              onChange={(e) => setCustomAlto(parseInt(e.target.value, 10) || 0)}
+                              placeholder="1080"
+                              className="w-full bg-surface-container-low border-none rounded-xl py-2.5 px-3 text-xs font-bold focus:ring-2 focus:ring-violet-700/20 transition-all shadow-inner"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ubicación del Logo */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">
+                        Ubicación del Logo *
+                      </label>
+                      <select
+                        value={logoUbicacion}
+                        onChange={(e) => setLogoUbicacion(e.target.value as LogoUbicacion)}
+                        className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-sm font-bold focus:ring-2 focus:ring-violet-700/20 transition-all shadow-inner"
+                      >
+                        {LOGO_UBICACION_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-outline font-semibold ml-1">
+                        {logoUbicacion === 'sin_logo' 
+                          ? 'La imagen se generará sin incluir el logo de la marca.' 
+                          : 'Gemini integrará el logo del cliente en la posición indicada.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Información de la imagen */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">
+                      Información de la Imagen *
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={informacionImagen}
+                      onChange={(e) => setInformacionImagen(e.target.value)}
+                      placeholder="Describí de qué se trata la imagen, contexto, tema, productos a mostrar, estilo deseado, etc."
+                      className="w-full bg-surface-container-low border-none rounded-2xl py-3 px-4 text-xs font-bold focus:ring-2 focus:ring-violet-700/20 transition-all resize-none shadow-inner"
+                    />
+                  </div>
+
+                  {/* Textos Obligatorios */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest ml-1 block">
+                          Textos Obligatorios (Opcional)
+                        </label>
+                        <p className="text-[10px] text-outline font-semibold ml-1">
+                          Frases o palabras exactas que deben figurar en la imagen (ofertas, títulos, teléfonos, etc.)
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddTextoObligatorio}
+                        className="flex items-center gap-1 px-3.5 py-2 bg-violet-50 hover:bg-violet-100 text-violet-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                      >
+                        <span className="material-symbols-outlined text-xs font-bold">add</span>
+                        <span>Agregar Texto</span>
+                      </button>
+                    </div>
+
+                    {textosObligatorios.length > 0 && (
+                      <div className="space-y-2.5 bg-slate-50/50 p-4 rounded-2xl border border-outline-variant/5">
+                        {textosObligatorios.map((item, idx) => (
+                          <div key={item.rowId} className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-outline w-5 text-center shrink-0">#{idx + 1}</span>
+                            <input
+                              type="text"
+                              value={item.texto}
+                              onChange={(e) => handleUpdateTextoObligatorio(item.rowId, e.target.value)}
+                              placeholder="Ej: '20% OFF en talonarios' o 'Envíos a todo el país'"
+                              className="flex-1 bg-surface-container-low border-none rounded-xl py-2 px-3 text-xs font-bold focus:ring-2 focus:ring-violet-700/20 transition-all shadow-inner"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTextoObligatorio(item.rowId)}
+                              className="p-2 text-outline/60 hover:text-error hover:bg-error/10 rounded-xl transition-all shrink-0"
+                              title="Quitar texto"
+                            >
+                              <span className="material-symbols-outlined text-sm font-bold">delete</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Botón de Generación */}
+                  <div className="pt-2">
+                    {saldo < 3750 ? (
+                      <button
+                        disabled
+                        title="Saldo insuficiente, se requieren 3.750 créditos"
+                        className="w-full py-4 bg-slate-100 text-slate-400 font-bold rounded-2xl border border-slate-200 cursor-not-allowed opacity-60 flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest"
+                      >
+                        <span className="material-symbols-outlined text-base">lock</span>
+                        <span>Saldo Insuficiente (Requerido: 3.750 créditos)</span>
+                      </button>
+                    ) : (
+                      <button
+                        disabled={
+                          generatingIsolatedImage ||
+                          !informacionImagen.trim() ||
+                          (medidaPreset === 'custom' && (customAncho <= 0 || customAlto <= 0))
+                        }
+                        onClick={handleGenerarImagenAislada}
+                        className="w-full py-4 bg-violet-600 text-white font-bold rounded-2xl shadow-xl shadow-violet-500/20 hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+                      >
+                        {generatingIsolatedImage ? (
+                          <>
+                            <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                            <span>Generando 3 Alternativas con Gemini...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[1.2rem]">auto_awesome</span>
+                            <span>Generar 3 Alternativas (3.750 créditos)</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Resultado de la última generación */}
+              {latestGeneratedImages && latestGeneratedImages.length > 0 && (
+                <div className="bg-gradient-to-br from-violet-900/10 to-indigo-900/5 p-8 md:p-10 rounded-[2.5rem] border border-violet-500/20 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-violet-600 text-white flex items-center justify-center">
+                        <span className="material-symbols-outlined text-lg font-bold">auto_awesome</span>
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-headline font-extrabold text-on-surface tracking-tight">
+                          Alternativas Recién Generadas
+                        </h3>
+                        <p className="text-[10px] text-violet-700 font-bold uppercase tracking-wider">
+                          {latestGeneratedImages.length} de 3 imágenes creadas con éxito
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setLatestGeneratedImages(null)}
+                      className="text-xs text-outline hover:text-on-surface flex items-center gap-1 font-bold px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
+                    >
+                      <span className="material-symbols-outlined text-sm">close</span>
+                      <span>Ocultar</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {latestGeneratedImages.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-white rounded-[1.75rem] border border-outline-variant/10 shadow-md overflow-hidden flex flex-col group hover:shadow-xl transition-all"
+                      >
+                        <div className="relative aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
+                          <img
+                            src={url}
+                            alt={`Alternativa ${idx + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                          <span className="absolute top-3 left-3 bg-black/70 backdrop-blur-md text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg">
+                            Opción #{idx + 1}
+                          </span>
+                        </div>
+                        <div className="p-4 flex gap-2 bg-white">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-slate-100 hover:bg-violet-50 hover:text-violet-700 text-on-surface font-bold rounded-xl text-[10px] uppercase tracking-wider transition-all"
+                          >
+                            <span className="material-symbols-outlined text-sm">open_in_new</span>
+                            <span>Ver</span>
+                          </a>
+                          <a
+                            href={url}
+                            download={`grafiko-imagen-suelta-${idx + 1}.png`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl text-[10px] uppercase tracking-wider shadow-md shadow-violet-500/10 transition-all"
+                          >
+                            <span className="material-symbols-outlined text-sm">download</span>
+                            <span>Bajar</span>
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Historial de Imágenes Sueltas */}
+              <div className="bg-surface-container-lowest p-8 md:p-10 rounded-[2.5rem] shadow-sm border border-outline-variant/10 space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/5">
+                  <div>
+                    <h3 className="text-xl font-headline font-extrabold text-on-surface tracking-tight">Historial de Imágenes Sueltas</h3>
+                    <p className="text-[10px] text-outline font-bold uppercase tracking-wider mt-0.5">
+                      Generaciones anteriores de este cliente (últimas 20)
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => fetchImagenesAisladas(selectedCliente.id)}
+                    disabled={loadingHistorial}
+                    className="flex items-center gap-1 px-3 py-1.5 text-outline hover:text-violet-700 text-xs font-bold rounded-xl hover:bg-violet-50 transition-all"
+                    title="Refrescar historial"
+                  >
+                    <span className={`material-symbols-outlined text-sm ${loadingHistorial ? 'animate-spin' : ''}`}>refresh</span>
+                    <span>Actualizar</span>
+                  </button>
+                </div>
+
+                {loadingHistorial ? (
+                  <div className="py-12 flex flex-col items-center justify-center space-y-3 text-violet-400">
+                    <div className="w-8 h-8 border-4 border-violet-100 border-t-violet-600 rounded-full animate-spin"></div>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Cargando historial...</p>
+                  </div>
+                ) : imagenesAisladas.length === 0 ? (
+                  <div className="py-12 border border-dashed border-outline-variant/20 rounded-[1.75rem] text-center text-xs text-outline italic">
+                    Todavía no se generaron imágenes sueltas para este cliente.
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {imagenesAisladas.map((item) => {
+                      const urls = Array.isArray(item.imagenes_url) ? item.imagenes_url : [];
+                      const textos = Array.isArray(item.textos_obligatorios) ? item.textos_obligatorios : [];
+                      const infoTruncada = item.informacion?.length > 120 
+                        ? item.informacion.slice(0, 120) + '…' 
+                        : item.informacion;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="bg-white border border-outline-variant/10 rounded-[1.75rem] p-6 space-y-5 shadow-sm hover:shadow-md transition-all"
+                        >
+                          {/* Item Header */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-outline-variant/5 pb-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="bg-slate-100 text-slate-700 rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">
+                                {formatDateAR(item.created_at)}
+                              </span>
+                              <span className="bg-violet-50 text-violet-700 border border-violet-100 rounded-md px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">
+                                {item.ancho_px} × {item.alto_px} px
+                              </span>
+                              <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider">
+                                Logo: {getLogoUbicacionLabel(item.logo_ubicacion)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Item Info and Textos */}
+                          <div className="space-y-2">
+                            <p className="text-xs text-on-surface font-semibold leading-relaxed" title={item.informacion}>
+                              {infoTruncada}
+                            </p>
+
+                            {textos.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                <span className="text-[9px] font-black text-outline uppercase tracking-widest mr-1">Textos:</span>
+                                {textos.map((txt, tIdx) => (
+                                  <span key={tIdx} className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                                    "{txt}"
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Thumbnails grid */}
+                          {urls.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                              {urls.map((url, uIdx) => (
+                                <div key={uIdx} className="relative group rounded-2xl overflow-hidden border border-outline-variant/10 bg-slate-50 aspect-square flex items-center justify-center">
+                                  <img
+                                    src={url}
+                                    alt={`Alternativa ${uIdx + 1}`}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                  />
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center p-3 gap-2">
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="bg-white/90 hover:bg-white text-slate-900 rounded-xl px-3 py-1.5 text-[9px] font-black uppercase tracking-widest flex items-center gap-1 backdrop-blur-sm transition-all"
+                                    >
+                                      <span className="material-symbols-outlined text-xs">open_in_new</span>
+                                      <span>Ver</span>
+                                    </a>
+                                    <a
+                                      href={url}
+                                      download={`grafiko-suelta-${item.id}-${uIdx + 1}.png`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="bg-violet-600 hover:bg-violet-700 text-white rounded-xl px-3 py-1.5 text-[9px] font-black uppercase tracking-widest flex items-center gap-1 backdrop-blur-sm transition-all"
+                                    >
+                                      <span className="material-symbols-outlined text-xs">download</span>
+                                      <span>Bajar</span>
+                                    </a>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
             </div>
